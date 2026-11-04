@@ -32,7 +32,9 @@ Fork: `https://github.com/yami12212332-beep/Telegram-Stremio`
 - Vendored pure-Python `pymongo`/`bson`/`gridfs`/`motor`; local `pyaes` wheel.
 - Pydantic 1 / FastAPI 0.99 for Android (avoids native `pydantic-core`).
 - Uvicorn falls back to asyncio/h11 when uvloop/httptools are absent.
-- arm64 debug APK, ~41 MB.
+- arm64 debug APK, ~52 MB.
+- **TgCrypto 1.2.5** native AES bundled; without it Pyrogram falls back to
+  pure-Python AES and streams at roughly 0.1 MB/s.
 
 ## Android build (new machine)
 
@@ -94,7 +96,10 @@ contains commas. `Backend/config.py` accepts both separators.
 - Staging sweep: 28 scanned, 11 orphans deleted, 17 referenced kept.
 - >2 GB: a 2.9 GB copy succeeded on the test account.
 - `noforwards` / restricted content: not tested.
-- Android: admin panel opens on-device; playback via Nuvio confirmed.
+- Android: admin panel opens on-device; Nuvio playback confirmed after bundling
+  TgCrypto. The native AES module removed the 0.1 MB/s bottleneck.
+
+Last verified: 2026-11-04.
 
 ## Known issues / next work
 

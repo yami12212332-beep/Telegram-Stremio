@@ -22,7 +22,16 @@ export ANDROID_HOME=/path/to/Android/Sdk
 gradle :app:assembleDebug
 ```
 
-APK: `app/build/outputs/apk/debug/app-debug.apk`
+APK: `app/build/outputs/apk/debug/app-debug.apk` (arm64, ~52 MB)
+
+## Performance
+
+`tgcrypto==1.2.5` is bundled from Chaquopy's Android wheel. Without it, Pyrogram
+uses pure-Python AES and streaming drops to roughly 0.1 MB/s. After startup,
+**View Log** must not contain `TgCrypto is missing`.
+
+If playback is still slow with TgCrypto active, test on Wi-Fi, try a lower
+quality, and check the phone's CPU/decoder support for HEVC.
 
 `local.properties` is git-ignored. The repository contains no credentials.
 
