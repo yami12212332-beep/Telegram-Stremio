@@ -51,6 +51,13 @@ def _is_manual_channel(chat_id) -> bool:
     return any(str(c).strip().replace("-100", "") == target for c in SettingsManager.current().manual_channels)
 
 
+#----- True when a chat id is the staging channel used by the external-bot bridge
+def _is_staging_channel(chat_id) -> bool:
+    target = str(chat_id).replace("-100", "")
+    staging = str(SettingsManager.current().staging_channel or "").strip().replace("-100", "")
+    return bool(staging) and target == staging
+
+
 #----- Common message field extraction shared by the channel handlers
 def _extract_fields(message: Message):
     file = message.video or message.document
@@ -221,7 +228,8 @@ async def file_receive_handler(client: Client, message: Message):
     if is_manual:
         if not (session and session.get("kind") == "real"):
             return
-    elif str(message.chat.id) not in SettingsManager.current().auth_channels:
+    elif (str(message.chat.id) not in SettingsManager.current().auth_channels
+          and not _is_staging_channel(message.chat.id)):
         return
 
     is_real_session = bool(session and session.get("kind") == "real")
@@ -274,7 +282,8 @@ def _override_matches_indexed(override_id: str, imdb_id, tmdb_id) -> bool:
 #----- Edited file: same title (or no id) renames it, another title's id re-indexes it
 @Client.on_edited_message(filters.channel & (filters.document | filters.video))
 async def file_edited_handler(client: Client, message: Message):
-    if str(message.chat.id) not in SettingsManager.current().auth_channels:
+    if (str(message.chat.id) not in SettingsManager.current().auth_channels
+            and not _is_staging_channel(message.chat.id)):
         return
     try:
         if not _is_supported_media(message):
@@ -315,7 +324,9 @@ async def file_deleted_handler(client: Client, messages: list[Message]):
         for message in messages:
             if not message.chat:
                 continue
-            if not (str(message.chat.id) in SettingsManager.current().auth_channels or _is_manual_channel(message.chat.id)):
+            if not (str(message.chat.id) in SettingsManager.current().auth_channels
+                    or _is_manual_channel(message.chat.id)
+                    or _is_staging_channel(message.chat.id)):
                 continue
             channel = str(message.chat.id).replace("-100", "")
             msg_id = message.id

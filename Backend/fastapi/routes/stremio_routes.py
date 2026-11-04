@@ -22,7 +22,8 @@ from Backend.helper.cf_stream import cf_enabled, cf_stream_url
 from Backend.fastapi.themes import DEFAULT_THEME, DEFAULT_STYLE, get_theme
 from Backend.helper.fanart import fanart_artwork
 from Backend.helper.global_search import global_search, is_global_search_enabled
-from Backend.helper.metadata.providers.cinemeta import get_detail, get_season
+from Backend.helper import external_search as external_bot
+from Backend.helper.metadata.providers.cinemeta import cached_detail, get_detail, get_season
 from Backend.helper.metadata import resolve_cover_url, COMBINED_SEASON, COMBINED_EPISODE_BASE, tmdb_api_key
 from Backend.helper.database import convert_objectid_to_str
 from Backend.helper.split_files import parse_combined_episodes, combined_name_key
@@ -1783,6 +1784,85 @@ async def _is_subscription_member(user_id: int) -> bool:
     return result
 
 
+#----- External (M Searcher) stream options for titles absent from the library
+async def _external_streams_for(token: str, request: Request, *, imdb_id: str,
+                                media_type: str, season_num, episode_num,
+                                media_details) -> list:
+    settings = SettingsManager.current()
+    if not settings.external_search:
+        return []
+    if not imdb_id or not str(imdb_id).startswith("tt"):
+        return []
+
+    is_series = media_type in ("series", "tv")
+    if is_series and (season_num is None or episode_num is None):
+        return []
+
+    title = ""
+    year = None
+    if media_details:
+        title = media_details.get("title_english") or media_details.get("title") or ""
+        year = media_details.get("release_year")
+    if not title:
+        detail = await cached_detail(imdb_id, "series" if is_series else "movie")
+        if detail:
+            title = detail.get("title") or ""
+            year = (detail.get("releaseDetailed") or {}).get("year")
+
+    query = external_bot.build_query(title, year, season_num, episode_num)
+    if not query:
+        return []
+
+    try:
+        candidates = await asyncio.wait_for(
+            external_bot.search_candidates(query, timeout=settings.external_timeout),
+            timeout=settings.external_timeout + 1,
+        )
+    except (asyncio.TimeoutError, external_bot.ExternalSearchBusy) as exc:
+        LOGGER.warning(f"[MSEARCH] '{query}' unavailable: {exc}")
+        return []
+    except external_bot.ExternalSearchError as exc:
+        LOGGER.warning(f"[MSEARCH] '{query}' failed: {exc}")
+        return []
+
+    selected = external_bot.select_candidates(
+        candidates,
+        per_quality=settings.external_variants,
+        tamil_first=settings.external_tamil_first,
+        max_results=settings.external_max_results,
+    )
+    if not selected:
+        return []
+
+    base = (settings.base_url or str(request.base_url)).rstrip("/")
+    streams = []
+    to_prefetch = []
+    for candidate in selected:
+        request_id, pending = external_bot.register(token, candidate, title)
+        to_prefetch.append(pending)
+
+        name = f"🌐 {candidate.quality or 'HD'}"
+        if candidate.tamil:
+            name += " · Tamil"
+        elif candidate.audio:
+            name += f" · {candidate.audio.title()}"
+
+        size_part = f"{candidate.size} · " if candidate.size else ""
+        streams.append({
+            "name": name,
+            "title": f"{candidate.label}\n{size_part}M Searcher — tap to fetch & play",
+            "url": f"{base}/ms/resolve/{token}/{request_id}",
+            "size_bytes": parse_size_to_bytes(candidate.size),
+            "sort_name": candidate.quality or "HD",
+            "behaviorHints": {"bingeGroup": f"msearcher-{candidate.quality or 'hd'}"},
+        })
+
+    if settings.external_prefetch and to_prefetch:
+        asyncio.create_task(external_bot.prefetch(to_prefetch))
+
+    return streams
+
+
 #----- Resolve playable streams for a title (Telegram library or Global Search)
 @router.get("/{token}/stream/{media_type}/{id}.json")
 async def get_streams(
@@ -1947,6 +2027,23 @@ async def get_streams(
             )
         except Exception as e:
             LOGGER.error(f"[GLOBAL SEARCH] stream search failed for {id}: {e}")
+
+    #----- Optional M Searcher fallback for titles that are not in the library
+    settings_snapshot = SettingsManager.current()
+    if (settings_snapshot.external_search and not is_kitsu and imdb_id
+            and (not streams or settings_snapshot.external_always)):
+        try:
+            streams.extend(await _external_streams_for(
+                token,
+                request,
+                imdb_id=imdb_id,
+                media_type=media_type,
+                season_num=season_num,
+                episode_num=episode_num,
+                media_details=media_details,
+            ))
+        except Exception as e:
+            LOGGER.error(f"[MSEARCH] stream fallback failed for {id}: {e}")
 
     #----- Per-token quality filter (fall back to all if it would hide everything)
     config = token_data.get("config") or {}

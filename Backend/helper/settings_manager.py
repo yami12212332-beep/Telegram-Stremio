@@ -41,6 +41,15 @@ _DEFAULTS: Dict[str, Any] = {
     "global_search": False,
     "default_streaming": "bots",
     "global_search_channels": [],
+    "external_search": Telegram.EXTERNAL_SEARCH,
+    "external_bot": Telegram.EXTERNAL_BOT,
+    "staging_channel": Telegram.STAGING_CHANNEL,
+    "external_tamil_first": Telegram.EXTERNAL_TAMIL_FIRST,
+    "external_prefetch": Telegram.EXTERNAL_PREFETCH,
+    "external_always": Telegram.EXTERNAL_ALWAYS,
+    "external_timeout": Telegram.EXTERNAL_TIMEOUT,
+    "external_max_results": Telegram.EXTERNAL_MAX_RESULTS,
+    "external_variants": Telegram.EXTERNAL_VARIANTS,
     "anime_channels": [],
     "manual_channels": [],
     "channel_titles": {},
@@ -137,6 +146,51 @@ class Settings:
     @property
     def global_search_channels(self):
         return list(self._d.get("global_search_channels") or [])
+
+    @property
+    def external_search(self) -> bool:
+        return bool(self._d.get("external_search", False))
+
+    @property
+    def external_bot(self) -> str:
+        return str(self._d.get("external_bot") or "").strip().lstrip("@")
+
+    @property
+    def staging_channel(self) -> str:
+        return str(self._d.get("staging_channel") or "").strip()
+
+    @property
+    def external_tamil_first(self) -> bool:
+        return bool(self._d.get("external_tamil_first", True))
+
+    @property
+    def external_prefetch(self) -> bool:
+        return bool(self._d.get("external_prefetch", False))
+
+    @property
+    def external_always(self) -> bool:
+        return bool(self._d.get("external_always", False))
+
+    @property
+    def external_timeout(self) -> int:
+        try:
+            return max(3, min(30, int(self._d.get("external_timeout", 8))))
+        except (TypeError, ValueError):
+            return 8
+
+    @property
+    def external_max_results(self) -> int:
+        try:
+            return max(1, min(20, int(self._d.get("external_max_results", 6))))
+        except (TypeError, ValueError):
+            return 6
+
+    @property
+    def external_variants(self) -> int:
+        try:
+            return max(1, min(3, int(self._d.get("external_variants", 1))))
+        except (TypeError, ValueError):
+            return 1
 
     @property
     def anime_channels(self) -> List[str]:

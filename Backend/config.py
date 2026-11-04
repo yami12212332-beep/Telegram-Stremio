@@ -43,6 +43,17 @@ class Telegram:
     HTTP_PROXY_URL                = getenv("HTTP_Proxy_URL", "")
     SHOW_PROXY_AND_NON_PROXY_BOTH = getenv("SHOW_ProxyAndNonProxyBoth", "false").lower() == "true"
 
+    #----- M Searcher bridge (optional; env fallback, editable in settings DB)
+    EXTERNAL_SEARCH               = getenv("EXTERNAL_SEARCH", "false").lower() == "true"
+    EXTERNAL_BOT                  = (getenv("EXTERNAL_BOT") or "").strip().lstrip("@")
+    STAGING_CHANNEL               = (getenv("STAGING_CHANNEL") or "").strip()
+    EXTERNAL_TAMIL_FIRST          = getenv("EXTERNAL_TAMIL_FIRST", "true").lower() == "true"
+    EXTERNAL_PREFETCH             = getenv("EXTERNAL_PREFETCH", "false").lower() == "true"
+    EXTERNAL_ALWAYS               = getenv("EXTERNAL_ALWAYS", "false").lower() == "true"
+    EXTERNAL_TIMEOUT              = _int_env("EXTERNAL_TIMEOUT", 8)
+    EXTERNAL_MAX_RESULTS          = _int_env("EXTERNAL_MAX_RESULTS", 6)
+    EXTERNAL_VARIANTS             = _int_env("EXTERNAL_VARIANTS", 1)
+
     #----- WebDAV (optional env fallback; prefer Settings page)
     WEBDAV_USER     = getenv("WEBDAV_USER", "")
     WEBDAV_PASSWORD = getenv("WEBDAV_PASSWORD", "")

@@ -8,7 +8,7 @@ from typing import Dict
 from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.responses import Response as PlainResponse
 from fastapi.responses import StreamingResponse
 
@@ -17,7 +17,8 @@ from Backend.fastapi.security.tokens import verify_token
 from Backend.helper.bounded import BoundedDict
 from Backend.helper.analytics import client_ip_from, record_stream_start
 from Backend.helper.custom_dl import ACTIVE_STREAMS, RECENT_STREAMS, ByteStreamer
-from Backend.helper.encrypt import decode_string
+from Backend.helper.encrypt import decode_string, encode_string
+from Backend.helper import external_search as external_bot
 from Backend.helper.pyro import get_thumb_download_target
 from Backend.helper.settings_manager import SettingsManager
 from Backend.helper.utils import track_usage
@@ -270,6 +271,56 @@ async def subtitle_handler(token: str, id: str, name: str, token_data: dict = De
         media_type=_SUBTITLE_MIME.get(ext, "application/octet-stream"),
         headers={"Cache-Control": "public, max-age=86400", "Access-Control-Allow-Origin": "*"},
     )
+
+
+#----- Resolve an M Searcher result on first play, then redirect to the copied file
+@router.api_route("/ms/resolve/{token}/{request_id}", methods=["GET", "HEAD"])
+async def resolve_external_stream(
+    request: Request,
+    token: str,
+    request_id: str,
+    token_data: dict = Depends(verify_token),
+):
+    if token_data.get("subscription_expired"):
+        raise HTTPException(status_code=403, detail="Subscription expired")
+    if token_data.get("limit_exceeded"):
+        raise HTTPException(status_code=429, detail="Data limit reached")
+
+    pending = external_bot.get_request(request_id, token=token)
+    if pending is None:
+        raise HTTPException(status_code=404, detail="This stream request expired; reopen the title")
+
+    try:
+        pending = await asyncio.wait_for(
+            external_bot.prepare_request(pending),
+            timeout=max(20, SettingsManager.current().external_timeout + 20),
+        )
+    except external_bot.ExternalSearchBusy as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+            headers={"Retry-After": str(max(2, exc.wait))},
+        )
+    except external_bot.ExternalSearchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=503,
+            detail="Still fetching from M Searcher; retry shortly",
+            headers={"Retry-After": "5"},
+        )
+
+    if not pending.resolved_chat_id or not pending.resolved_message_id:
+        raise HTTPException(status_code=502, detail="M Searcher did not return a playable file")
+
+    channel = str(pending.resolved_chat_id).replace("-100", "")
+    encoded = await encode_string({
+        "chat_id": int(channel),
+        "msg_id": int(pending.resolved_message_id),
+    })
+    base = (SettingsManager.current().base_url or str(request.base_url)).rstrip("/")
+    target = f"{base}/dl/{token}/{encoded}/{quote(pending.filename or 'video.mkv', safe='')}"
+    return RedirectResponse(target, status_code=307, headers={"Cache-Control": "no-store"})
 
 
 #----- Entry point: decode the id and dispatch to the matching streamer

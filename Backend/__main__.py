@@ -64,6 +64,30 @@ async def start_services():
             LOGGER.info("Userbot not configured — running with StreamBot only.")
         await asyncio.sleep(1.2)
 
+        #----- M Searcher bridge: fail loudly at boot instead of silently in the addon
+        ext = SettingsManager.current()
+        if ext.external_search:
+            missing = []
+            if not ext.external_bot:
+                missing.append("EXTERNAL_BOT")
+            if not ext.staging_channel:
+                missing.append("STAGING_CHANNEL")
+            if botmod.Userbot is None:
+                missing.append("Telegram user session")
+            if missing:
+                LOGGER.warning("[MSEARCH] disabled — missing: " + ", ".join(missing))
+            else:
+                LOGGER.info(
+                    f"[MSEARCH] enabled — bot @{ext.external_bot}, "
+                    f"staging {ext.staging_channel}, Tamil-first={ext.external_tamil_first}"
+                )
+                try:
+                    await StreamBot.get_chat(int(ext.staging_channel))
+                except Exception as exc:
+                    LOGGER.warning(
+                        f"[MSEARCH] the bot cannot access staging channel {ext.staging_channel}: {exc}"
+                    )
+
         LOGGER.info("Initializing Multi Clients...")
         await initialize_clients()
         await asyncio.sleep(2)

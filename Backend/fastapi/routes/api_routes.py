@@ -1787,7 +1787,7 @@ async def update_settings_api(payload: dict) -> dict:
         del payload["session_secret"]
 
     #----- Type coercion and validation
-    bool_keys = {"replace_mode", "duplicate_protection", "hide_catalog", "subscription", "show_proxy_and_non_proxy_both", "mediaflow_proxy", "announce_new_content", "delete_on_metadata_fail", "better_poster_enabled", "rpdb_enabled", "spatial_poster_enabled", "fanart_enabled", "fanart_shuffle", "fanart_low_res_poster"}
+    bool_keys = {"replace_mode", "duplicate_protection", "hide_catalog", "subscription", "show_proxy_and_non_proxy_both", "mediaflow_proxy", "announce_new_content", "delete_on_metadata_fail", "better_poster_enabled", "rpdb_enabled", "spatial_poster_enabled", "fanart_enabled", "fanart_shuffle", "fanart_low_res_poster", "external_search", "external_tamil_first", "external_prefetch", "external_always"}
     for key in bool_keys:
         if key in payload:
             payload[key] = bool(payload[key])
@@ -1834,6 +1834,26 @@ async def update_settings_api(payload: dict) -> dict:
             payload["fanart_shuffle_interval"] = max(0, int(payload["fanart_shuffle_interval"]))
         except (ValueError, TypeError):
             payload["fanart_shuffle_interval"] = 5
+
+    if "external_timeout" in payload:
+        try:
+            payload["external_timeout"] = max(3, min(30, int(payload["external_timeout"])))
+        except (ValueError, TypeError):
+            payload["external_timeout"] = 8
+    if "external_max_results" in payload:
+        try:
+            payload["external_max_results"] = max(1, min(20, int(payload["external_max_results"])))
+        except (ValueError, TypeError):
+            payload["external_max_results"] = 6
+    if "external_variants" in payload:
+        try:
+            payload["external_variants"] = max(1, min(3, int(payload["external_variants"])))
+        except (ValueError, TypeError):
+            payload["external_variants"] = 1
+    for key in ("external_bot", "staging_channel"):
+        if key in payload:
+            value = str(payload[key] or "").strip()
+            payload[key] = value.lstrip("@") if key == "external_bot" else value
 
     if len([k for k in ("better_poster_enabled", "rpdb_enabled", "spatial_poster_enabled", "fanart_enabled") if payload.get(k)]) > 1:
         raise HTTPException(status_code=400, detail="Enable only one poster provider at a time")
@@ -1913,6 +1933,11 @@ async def update_settings_api(payload: dict) -> dict:
     if "skip_channel" in payload and payload["skip_channel"]:
         payload["skip_channel"] = _validate_channel_id(
             payload["skip_channel"], "skip channel"
+        )
+
+    if payload.get("staging_channel"):
+        payload["staging_channel"] = _validate_channel_id(
+            payload["staging_channel"], "staging channel"
         )
 
     #----- The same channel id may not appear in more than one channel field.
