@@ -7,7 +7,7 @@ from difflib import SequenceMatcher
 from typing import Any, Dict, Optional
 from urllib.parse import quote
 
-from rapidfuzz import fuzz
+from Backend.helper.fuzz import fuzz
 
 from Backend.helper.bounded import BoundedDict
 from Backend.logger import LOGGER

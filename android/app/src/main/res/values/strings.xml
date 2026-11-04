@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Telegram-Stremio</string>
+    <string name="intro">Runs the addon, StreamBot and M Searcher on this phone. MongoDB stays in Atlas; the Telegram user session is connected from Admin → Settings after the server starts.</string>
+</resources>

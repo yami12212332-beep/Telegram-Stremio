@@ -1,3 +1,5 @@
+import importlib.util
+
 import uvicorn
 
 from Backend.config import Telegram
@@ -9,8 +11,8 @@ config = uvicorn.Config(
     app=app,
     host="0.0.0.0",
     port=Port,
-    loop="uvloop",
-    http="httptools",
+    loop="uvloop" if importlib.util.find_spec("uvloop") else "auto",
+    http="httptools" if importlib.util.find_spec("httptools") else "h11",
     timeout_keep_alive=60,
     timeout_graceful_shutdown=5,
 )

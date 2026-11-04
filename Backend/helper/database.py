@@ -50,13 +50,26 @@ class Database:
 
         self.current_db_index = 1
 
+    #----- Honour a database name in the URI path (one Atlas cluster, two DBs)
+    @staticmethod
+    def _db_name_for_uri(uri: str, default: str) -> str:
+        try:
+            after_scheme = uri.split("://", 1)[1]
+            if "/" in after_scheme:
+                name = after_scheme.split("/", 1)[1].split("?", 1)[0].strip()
+                if name:
+                    return name
+        except Exception:
+            pass
+        return default
+
     async def connect(self):
         try:
             for index, uri in enumerate(self.db_uris):
                 client = motor.motor_asyncio.AsyncIOMotorClient(uri)
                 db_key = "tracking" if index == 0 else f"storage_{index}"
                 self.clients[db_key] = client
-                self.dbs[db_key] = client[self.db_name]
+                self.dbs[db_key] = client[self._db_name_for_uri(uri, self.db_name)]
                 db_type = "Tracking" if index == 0 else f"Storage {index}"
 
                 masked_uri = re.sub(r"://(.*?):.*?@", r"://\1:*****@", uri)
@@ -197,7 +210,7 @@ class Database:
 
             db_key = "tracking" if index == 0 else f"storage_{index}"
             self.clients[db_key] = client
-            self.dbs[db_key] = client[self.db_name]
+            self.dbs[db_key] = client[self._db_name_for_uri(uri, self.db_name)]
 
             db_type = "Tracking" if index == 0 else f"Storage {index}"
             masked_uri = re.sub(r"://(.*?):.*?@", r"://\1:*****@", uri).split('?')[0]

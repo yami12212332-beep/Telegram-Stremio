@@ -6,7 +6,7 @@ import re
 from typing import List, Optional
 
 import httpx
-from rapidfuzz import fuzz
+from Backend.helper.fuzz import fuzz
 
 from Backend.helper.metadata.common import (
     ensure_media_ids,
