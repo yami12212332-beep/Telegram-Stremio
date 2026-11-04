@@ -16,12 +16,26 @@ from Backend.helper.pyro import restart_notification, setup_bot_commands
 from Backend.helper.scan_manager import dbcheck_manager, duplicate_manager, scan_manager
 from Backend.helper.session_auth import get_active_session_string
 from Backend.helper.settings_manager import SettingsManager
+from Backend.helper.staging_cleanup import cleanup_orphans
 from Backend.logger import LOGGER
 import Backend.pyrofork.bot as botmod
 from Backend.pyrofork.bot import StreamBot
 from Backend.pyrofork.clients import initialize_clients
 
 loop = asyncio.get_event_loop()
+
+
+#----- Periodically drop staging files that no library entry references
+async def staging_cleanup_loop():
+    await asyncio.sleep(300)
+    while True:
+        settings = SettingsManager.current()
+        if settings.external_search and settings.staging_channel:
+            try:
+                await cleanup_orphans(db, StreamBot, settings.staging_channel)
+            except Exception:
+                LOGGER.warning("[MSEARCH] staging cleanup loop error", exc_info=True)
+        await asyncio.sleep(6 * 3600)
 
 
 #----- Boot every subsystem then idle the bot
@@ -99,6 +113,7 @@ async def start_services():
         await restart_notification()
         loop.create_task(server.serve())
         loop.create_task(ping())
+        loop.create_task(staging_cleanup_loop())
 
         link_checker_task = DeadLinkChecker(db, app, check_interval_hours=24)
         loop.create_task(link_checker_task.start())

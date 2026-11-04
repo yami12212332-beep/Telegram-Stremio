@@ -46,6 +46,7 @@ _DEFAULTS: Dict[str, Any] = {
     "staging_channel": Telegram.STAGING_CHANNEL,
     "external_tamil_first": Telegram.EXTERNAL_TAMIL_FIRST,
     "external_prefetch": Telegram.EXTERNAL_PREFETCH,
+    "external_prefetch_limit": Telegram.EXTERNAL_PREFETCH_LIMIT,
     "external_always": Telegram.EXTERNAL_ALWAYS,
     "external_timeout": Telegram.EXTERNAL_TIMEOUT,
     "external_max_results": Telegram.EXTERNAL_MAX_RESULTS,
@@ -166,6 +167,14 @@ class Settings:
     @property
     def external_prefetch(self) -> bool:
         return bool(self._d.get("external_prefetch", False))
+
+    @property
+    def external_prefetch_limit(self) -> int:
+        try:
+            # 0 = disabled even when external_prefetch is on
+            return max(0, min(5, int(self._d.get("external_prefetch_limit", 1))))
+        except (TypeError, ValueError):
+            return 1
 
     @property
     def external_always(self) -> bool:

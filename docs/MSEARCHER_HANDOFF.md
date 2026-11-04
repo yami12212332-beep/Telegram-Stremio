@@ -69,6 +69,7 @@ STAGING_CHANNEL="-1001234567890"     # private channel
 
 EXTERNAL_TAMIL_FIRST="true"          # prefer Tamil labels
 EXTERNAL_PREFETCH="false"            # copy offered files immediately
+EXTERNAL_PREFETCH_LIMIT="1"          # max candidates prefetch may copy, 0-5
 EXTERNAL_ALWAYS="false"              # also for titles already local
 EXTERNAL_TIMEOUT="8"                 # seconds, 3-30
 EXTERNAL_MAX_RESULTS="50"            # options, 1-100
@@ -82,9 +83,9 @@ Staging channel requirements:
 - `StreamBot` is an administrator/member so it receives the post and can stream it.
 - `BASE_URL` is set to the public addon URL.
 
-There is **no Settings-page card yet**; use `config.env` (or POST the keys to the
-settings API). Existing databases merge the env defaults because the keys are
-missing from `_DEFAULTS`.
+The bridge is configured in **Admin → Settings → M Searcher Bridge**, or from
+`config.env` (the settings API accepts the same keys). Existing databases merge
+the env defaults for keys missing from `_DEFAULTS`.
 
 ---
 
@@ -207,6 +208,19 @@ Fixes applied from this run:
 - `find_button`/`_find_button_across_pages` tolerate callback re-encryption and
   page reordering.
 
+### P0 run 5 — prefetch, cleanup, settings UI, 2026-11-04
+
+| Check | Result |
+|---|---|
+| Prefetch storm risk | ❌ prefetch copied every selected option (up to 48) |
+| Prefetch cap | ✅ `EXTERNAL_PREFETCH_LIMIT` (0-5, default 1); S03E05 prefetch copied exactly **1** file |
+| Staging growth | ❌ orphaned/replaced copies stayed forever |
+| Orphan sweep | ✅ `cleanup_orphans` scanned 28 staging messages, kept 17 referenced, deleted 11 orphans |
+| Sweep schedule | ✅ starts 5 min after boot, then every 6 hours |
+| Settings card | ✅ Admin → Settings → M Searcher Bridge; all bridge fields save and re-render |
+| PATCH validation | ✅ invalid staging channel returns 400 |
+| Prefetch toggle | ✅ enabled for the test, then disabled again |
+
 ### P0 — validate the source bot (do this first)
 
 1. From the userbot account, send `House of the Dragon 2026 S03E02`.
@@ -254,21 +268,22 @@ If step 2 or 3 fails, adjust `external_search.py` before spending time on Nuvio.
 
 ## 6. What still needs doing (prioritized)
 
-1. **P0 validation** (above) — core path passes; restricted/`noforwards` and
-   >2 GB files still need a live check.
-2. **Settings page card** — toggle, bot username, staging channel, Tamil/prefetch/
-   variants/timeouts. API validation exists, UI does not.
-3. **Pagination** — episode searches now walk up to 5 pages; season-wide and
-   movie searches still parse only the first result message.
+1. **Remaining P0 edges** — restricted/`noforwards` files and >2 GB on a free
+   account still need a live check.
+2. **Settings page card** — ✅ added under Admin → Settings → M Searcher Bridge.
+3. **Pagination** — ✅ movies walk up to 5 pages, episode searches up to 5 pages.
+   Season-wide series fallbacks still parse page 1 only.
 4. **Dedupe / duplicate-protection interaction** — if `external_always` is on and
    the same file is already indexed, the receiver may delete the copy while the
    player holds a direct `/dl` link. Detect and redirect to the existing stream, or
    skip external options for known files.
-5. **Prefetch hardening** — queue width, cancel on title change, avoid copying all
-   variants for every `/stream` call, persist state across restarts.
-6. **Tamil detection** — currently label-only. If the label lacks language, inspect
+5. **Prefetch hardening** — ✅ capped by `EXTERNAL_PREFETCH_LIMIT` (0-5, default 1).
+   Still to do: cancel on title change and persist state across restarts.
+6. **Staging cleanup** — ✅ hourly orphan sweep; still to do: a retention policy for
+   *referenced* copies (replace mode keeps one per quality).
+7. **Tamil detection** — currently label-only. If the label lacks language, inspect
    the file caption after click (costs a copy) or tag manually.
-7. **Tests** — add the fake-userbot suite and endpoint tests to CI.
+8. **Tests** — add the fake-userbot suite and endpoint tests to CI.
 8. **Security parity** — `/ms/resolve` checks token expiry/limits but not
    subscription group membership; mirror the `/stream` checks.
 9. **Observability** — counters for searches/copies/failures, admin status card.

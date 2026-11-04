@@ -45,6 +45,8 @@ EXTERNAL_TAMIL_FIRST="true"
 # Copy the offered candidates in the background on the first stream request.
 # Costs Telegram API calls and channel messages; leave false to copy on play only.
 EXTERNAL_PREFETCH="false"
+# How many candidates prefetch may copy (0-5; 0 disables it).
+EXTERNAL_PREFETCH_LIMIT="1"
 
 # Show external options even when the title already has local streams.
 # Off by default to avoid duplicate copies.
@@ -58,8 +60,10 @@ EXTERNAL_MAX_RESULTS="50"
 EXTERNAL_VARIANTS="0"
 ```
 
-Existing databases pick these values up as defaults; saving the Settings page also
-persists them. There is no dedicated web form yet — use `config.env`.
+Existing databases pick these values up as defaults. Everything above is also
+editable in **Admin → Settings → M Searcher Bridge** (bot username, staging
+channel, Tamil-first, prefetch + limit, always, timeout, max options, sources
+per quality).
 
 The bridge searches episodes as `S01E01`, then `S01E1`, then `S01 EP01`, then the
 season. Results are filtered to the exact season/episode, and episode-specific

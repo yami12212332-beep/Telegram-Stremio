@@ -49,6 +49,7 @@ class Telegram:
     STAGING_CHANNEL               = (getenv("STAGING_CHANNEL") or "").strip()
     EXTERNAL_TAMIL_FIRST          = getenv("EXTERNAL_TAMIL_FIRST", "true").lower() == "true"
     EXTERNAL_PREFETCH             = getenv("EXTERNAL_PREFETCH", "false").lower() == "true"
+    EXTERNAL_PREFETCH_LIMIT       = _int_env("EXTERNAL_PREFETCH_LIMIT", 1)
     EXTERNAL_ALWAYS               = getenv("EXTERNAL_ALWAYS", "false").lower() == "true"
     EXTERNAL_TIMEOUT              = _int_env("EXTERNAL_TIMEOUT", 8)
     EXTERNAL_MAX_RESULTS          = _int_env("EXTERNAL_MAX_RESULTS", 50)

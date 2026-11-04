@@ -1872,7 +1872,11 @@ async def _external_streams_for(token: str, request: Request, *, imdb_id: str,
         })
 
     if settings.external_prefetch and to_prefetch:
-        asyncio.create_task(external_bot.prefetch(to_prefetch))
+        limit = settings.external_prefetch_limit
+        if limit > 0:
+            asyncio.create_task(external_bot.prefetch(to_prefetch[:limit]))
+        else:
+            LOGGER.info("[MSEARCH] prefetch enabled but external_prefetch_limit=0; nothing copied")
 
     return streams
 

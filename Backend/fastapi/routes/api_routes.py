@@ -1840,6 +1840,11 @@ async def update_settings_api(payload: dict) -> dict:
             payload["external_timeout"] = max(3, min(30, int(payload["external_timeout"])))
         except (ValueError, TypeError):
             payload["external_timeout"] = 8
+    if "external_prefetch_limit" in payload:
+        try:
+            payload["external_prefetch_limit"] = max(0, min(5, int(payload["external_prefetch_limit"])))
+        except (ValueError, TypeError):
+            payload["external_prefetch_limit"] = 1
     if "external_max_results" in payload:
         try:
             payload["external_max_results"] = max(1, min(100, int(payload["external_max_results"])))
@@ -1893,6 +1898,9 @@ async def update_settings_api(payload: dict) -> dict:
                 detail=f"Invalid {field}: '{channel}'. Only channel IDs in -100xxxxxxxxxx format are accepted (channels only, no groups/users/bots)."
             )
         return channel
+
+    if "staging_channel" in payload:
+        payload["staging_channel"] = _validate_channel_id(payload["staging_channel"], "staging channel")
 
     if "auth_channels" in payload:
         cleaned = []

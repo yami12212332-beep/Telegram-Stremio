@@ -957,8 +957,120 @@ document.addEventListener('DOMContentLoaded', sessLoadStatus);
     </div>
 </div>
 
+<!-- ── M Searcher Bridge ──────────────────────────────────────────────── -->
+<div class="settings-card">
+    <h2><i class="fa-solid fa-magnifying-glass"></i> M Searcher Bridge</h2>
 
+    <label class="toggle-wrap" style="{% if not userbot_configured %}opacity:0.5{% endif %}">
+        <input type="checkbox" class="toggle-input" id="external_search"
+            {% if settings.external_search %}checked{% endif %}
+            {% if not userbot_configured %}disabled{% endif %}
+            onchange="toggleExternalSearchFields()">
+        <span class="toggle-track"></span>
+        <span class="toggle-label">
+            <strong>Enable M Searcher</strong>
+            <span style="color:var(--text-sec);font-size:0.8rem;display:block">
+                Fallback source for titles missing from your library. Requires a
+                connected <strong>Telegram User Session</strong> and a private
+                staging channel where the bot can post.
+            </span>
+        </span>
+    </label>
 
+    {% if not userbot_configured %}
+    <p style="color:var(--text-sec);font-size:0.8rem;margin-top:0.75rem">
+        <i class="fa-solid fa-circle-info"></i>
+        Connect your <strong>Telegram User Session</strong> above to unlock this feature.
+    </p>
+    {% endif %}
+
+    <div id="external-search-fields"
+         style="{% if not settings.external_search %}display:none{% endif %}">
+        <hr class="divider">
+
+        <div class="grid-2">
+            <div>
+                <label class="s-label" for="external_bot">SOURCE BOT USERNAME</label>
+                <input type="text" id="external_bot" class="s-input"
+                    value="{{ settings.external_bot }}"
+                    placeholder="M1searcherbot" spellcheck="false" autocomplete="off">
+            </div>
+            <div>
+                <label class="s-label" for="staging_channel">STAGING CHANNEL</label>
+                <input type="text" id="staging_channel" class="s-input"
+                    value="{{ settings.staging_channel }}"
+                    data-id="{{ settings.staging_channel }}"
+                    placeholder="-100xxxxxxxxxx">
+            </div>
+        </div>
+
+        <div class="grid-2" style="margin-top:1rem">
+            <div>
+                <label class="s-label" for="external_timeout">TIMEOUT (SECONDS)</label>
+                <input type="number" id="external_timeout" class="s-input" min="3" max="30"
+                    value="{{ settings.external_timeout or 8 }}">
+            </div>
+            <div>
+                <label class="s-label" for="external_max_results">MAX STREAM OPTIONS</label>
+                <input type="number" id="external_max_results" class="s-input" min="1" max="100"
+                    value="{{ settings.external_max_results or 50 }}">
+            </div>
+        </div>
+
+        <div class="grid-2" style="margin-top:1rem">
+            <div>
+                <label class="s-label" for="external_variants">SOURCES PER QUALITY</label>
+                <input type="number" id="external_variants" class="s-input" min="0" max="20"
+                    value="{{ settings.external_variants }}">
+                <p class="hint" style="margin-top:0.35rem">0 = every available source.</p>
+            </div>
+            <div id="external-prefetch-limit-wrap">
+                <label class="s-label" for="external_prefetch_limit">PREFETCH LIMIT</label>
+                <input type="number" id="external_prefetch_limit" class="s-input" min="0" max="5"
+                    value="{{ settings.external_prefetch_limit }}">
+                <p class="hint" style="margin-top:0.35rem">Background copies (0-5); keep low.</p>
+            </div>
+        </div>
+
+        <label class="toggle-wrap" style="margin-top:1.25rem">
+            <input type="checkbox" class="toggle-input" id="external_tamil_first"
+                {% if settings.external_tamil_first %}checked{% endif %}>
+            <span class="toggle-track"></span>
+            <span class="toggle-label">
+                <strong>Prefer Tamil</strong>
+                <span style="color:var(--text-sec);font-size:0.8rem;display:block">
+                    Rank Tamil-labelled results first without hiding other languages.
+                </span>
+            </span>
+        </label>
+
+        <label class="toggle-wrap" style="margin-top:1rem">
+            <input type="checkbox" class="toggle-input" id="external_prefetch"
+                {% if settings.external_prefetch %}checked{% endif %}
+                onchange="toggleExternalSearchFields()">
+            <span class="toggle-track"></span>
+            <span class="toggle-label">
+                <strong>Prefetch the top result</strong>
+                <span style="color:var(--text-sec);font-size:0.8rem;display:block">
+                    Copy the first option in the background so the first play is faster.
+                    Extra copies cost Telegram API calls and staging-channel messages.
+                </span>
+            </span>
+        </label>
+
+        <label class="toggle-wrap" style="margin-top:1rem">
+            <input type="checkbox" class="toggle-input" id="external_always"
+                {% if settings.external_always %}checked{% endif %}>
+            <span class="toggle-track"></span>
+            <span class="toggle-label">
+                <strong>Show external options beside local streams</strong>
+                <span style="color:var(--text-sec);font-size:0.8rem;display:block">
+                    When off, M Searcher is only used for titles with no local stream.
+                </span>
+            </span>
+        </label>
+    </div>
+</div>
 
 <!-- ── New Content Announcements ──────────────────────────────────── -->
 <div class="settings-card">
@@ -1348,6 +1460,19 @@ function toggleGlobalSearchFields() {
     }
 }
 
+function toggleExternalSearchFields() {
+    const enabledEl = document.getElementById('external_search');
+    const fields = document.getElementById('external-search-fields');
+    if (enabledEl && fields) {
+        fields.style.display = enabledEl.checked ? '' : 'none';
+    }
+    const prefetchEl = document.getElementById('external_prefetch');
+    const limitWrap = document.getElementById('external-prefetch-limit-wrap');
+    if (prefetchEl && limitWrap) {
+        limitWrap.style.display = prefetchEl.checked ? '' : 'none';
+    }
+}
+
 function toggleAnnouncementFields() {
     const enabled = document.getElementById('announce_new_content').checked;
     const fields = document.getElementById('announcement-fields');
@@ -1644,6 +1769,14 @@ async function saveSettings() {
     const scId = (scEl.dataset.id || extractChannelId(scEl.value.trim()));
     if (acId) channelFields.push(acId);
     if (scId) channelFields.push(scId);
+
+    const stagingEl = document.getElementById('staging_channel');
+    const stagingId = stagingEl ? extractChannelId(stagingEl.value.trim()) : '';
+    if (stagingEl && stagingEl.value.trim() && !stagingId) {
+        alert('Staging channel must be -100xxxxxxxxxx format.');
+        return;
+    }
+    if (stagingId) channelFields.push(stagingId);
     for (const c of channelFields) {
         if (!isValidChannelId(c)) {
             alert('Only channel IDs in -100xxxxxxxxxx format are accepted: ' + c);
@@ -1709,6 +1842,16 @@ async function saveSettings() {
         global_search:                 document.getElementById('global_search').checked,
         global_search_channels:        collectList('global_search_channels'),
         manual_channels:               collectList('manual_channels'),
+        external_search:               document.getElementById('external_search').checked,
+        external_bot:                  document.getElementById('external_bot').value.trim().replace(/^@/, ''),
+        staging_channel:               stagingId,
+        external_tamil_first:          document.getElementById('external_tamil_first').checked,
+        external_prefetch:             document.getElementById('external_prefetch').checked,
+        external_prefetch_limit:       parseInt(document.getElementById('external_prefetch_limit').value || '1', 10),
+        external_always:               document.getElementById('external_always').checked,
+        external_timeout:              parseInt(document.getElementById('external_timeout').value || '8', 10),
+        external_max_results:          parseInt(document.getElementById('external_max_results').value || '50', 10),
+        external_variants:             parseInt(document.getElementById('external_variants').value || '0', 10),
         announce_new_content:          document.getElementById('announce_new_content').checked,
         announcement_channel:          (function(){const el=document.getElementById('announcement_channel');return el.dataset.id||extractChannelId(el.value.trim());})(),
         skip_channel:                  (function(){const el=document.getElementById('skip_channel');return el.dataset.id||extractChannelId(el.value.trim());})(),
@@ -1819,12 +1962,17 @@ function renderSettings(s) {
     document.getElementById('subscription').checked = !!s.subscription;
     document.getElementById('show_proxy_and_non_proxy_both').checked = !!s.show_proxy_and_non_proxy_both;
     document.getElementById('global_search').checked = !!s.global_search;
+    document.getElementById('external_search').checked = !!s.external_search;
+    document.getElementById('external_tamil_first').checked = s.external_tamil_first !== false;
+    document.getElementById('external_prefetch').checked = !!s.external_prefetch;
+    document.getElementById('external_always').checked = !!s.external_always;
     const dsEl = document.getElementById('default_streaming');
     if (dsEl) dsEl.checked = s.default_streaming === 'userbot';
     document.getElementById('announce_new_content').checked = !!s.announce_new_content;
     document.getElementById('delete_on_metadata_fail').checked = !!s.delete_on_metadata_fail;
     toggleSubFields();
     toggleGlobalSearchFields();
+    toggleExternalSearchFields();
     toggleAnnouncementFields();
 
     // Plain text/number fields
@@ -1833,6 +1981,17 @@ function renderSettings(s) {
     document.getElementById('tmdb_api').value = s.tmdb_api || '';
     if (document.getElementById('tvdb_api')) document.getElementById('tvdb_api').value = s.tvdb_api || '';
     document.getElementById('base_url').value = s.base_url || '';
+    document.getElementById('external_bot').value = s.external_bot || '';
+    const stagingEl = document.getElementById('staging_channel');
+    if (stagingEl) {
+        stagingEl.value = s.staging_channel || '';
+        stagingEl.dataset.id = s.staging_channel || '';
+    }
+    document.getElementById('external_prefetch_limit').value = (s.external_prefetch_limit ?? 1);
+    document.getElementById('external_timeout').value = (s.external_timeout ?? 8);
+    document.getElementById('external_max_results').value = (s.external_max_results ?? 50);
+    document.getElementById('external_variants').value = (s.external_variants ?? 0);
+    toggleExternalSearchFields();
     document.getElementById('better_poster_enabled').checked = !!s.better_poster_enabled;
     document.getElementById('better_poster').value = s.better_poster || '';
     document.getElementById('rpdb_enabled').checked = !!s.rpdb_enabled;
