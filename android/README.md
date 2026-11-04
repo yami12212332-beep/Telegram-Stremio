@@ -36,6 +36,15 @@ mongodb+srv://USER:PASS@cluster0.xxxxx.mongodb.net/ts_storage?retryWrites=true&w
 
 Allow `0.0.0.0/0` in Network Access (the phone IP changes), or restrict it later.
 
+If the `mongodb+srv://` form fails on Android (DNS resolver difference), use
+Atlas's standard connection string instead, e.g.:
+
+```
+mongodb://USER:PASS@host-00.xxxxx.mongodb.net:27017,host-01.xxxxx.mongodb.net:27017,host-02.xxxxx.mongodb.net:27017/ts_tracking?replicaSet=atlas-xxxxx-shard-0&authSource=admin&tls=true&retryWrites=true&w=majority
+```
+
+Open **View Log** in the app if startup fails; it shows the Python traceback.
+
 ## First run
 
 1. Fill API ID/hash, bot token, owner user ID, both Mongo URIs, source bot

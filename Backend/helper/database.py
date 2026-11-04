@@ -90,6 +90,7 @@ class Database:
 
         except Exception as e:
             LOGGER.error(f"Database connection error: {e}")
+            raise
 
     #----- Create the indexes catalog/stream lookups rely on.
     #----- create_index is idempotent, so this is safe to call repeatedly.

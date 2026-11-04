@@ -16,6 +16,8 @@ import androidx.core.app.ServiceCompat
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 class ServerService : Service() {
 
@@ -36,6 +38,7 @@ class ServerService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var pythonThread: Thread? = null
+    private var monitorThread: Thread? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -99,8 +102,6 @@ class ServerService : Service() {
                     Python.start(AndroidPlatform(applicationContext))
                 }
                 notify("Starting Python…")
-                val port = ConfigStore(applicationContext).port
-                notify("Server running on port $port — open Admin")
                 Python.getInstance()
                     .getModule("bootstrap")
                     .callAttr("start", appDir.absolutePath)
@@ -108,6 +109,42 @@ class ServerService : Service() {
                 fail("Python failed: ${t.message ?: t.javaClass.simpleName}", t)
             }
         }, "ts-python").apply { start() }
+
+        monitorThread = Thread({ waitForServer() }, "ts-monitor").apply { start() }
+    }
+
+    //----- Poll the local login page until uvicorn is actually listening
+    private fun waitForServer() {
+        val port = ConfigStore(applicationContext).port.ifBlank { "8000" }
+        val url = URL("http://127.0.0.1:$port/login")
+        val deadline = System.currentTimeMillis() + 90_000
+
+        while (isRunning && System.currentTimeMillis() < deadline) {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = url.openConnection() as HttpURLConnection
+                connection.connectTimeout = 2000
+                connection.readTimeout = 2000
+                connection.requestMethod = "GET"
+                val code = connection.responseCode
+                if (code in 100..499) {
+                    notify("Server ready on port $port — open Admin")
+                    return
+                }
+            } catch (_: Throwable) {
+                // not listening yet
+            } finally {
+                connection?.disconnect()
+            }
+            try {
+                Thread.sleep(1500)
+            } catch (_: InterruptedException) {
+                return
+            }
+        }
+        if (isRunning) {
+            notify("Server not responding on port $port — tap View Log")
+        }
     }
 
     private fun stopServer() {
@@ -190,6 +227,7 @@ class ServerService : Service() {
     }
 
     override fun onDestroy() {
+        isRunning = false
         releaseLock()
         super.onDestroy()
     }

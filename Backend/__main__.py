@@ -126,6 +126,7 @@ async def start_services():
         await idle()
     except Exception:
         LOGGER.error("Error during startup:\n" + format_exc())
+        raise
 
 
 #----- Cancel pending tasks and shut clients down
@@ -153,9 +154,16 @@ if __name__ == '__main__':
         loop.run_until_complete(start_services())
     except KeyboardInterrupt:
         LOGGER.info('Service Stopping...')
+    except asyncio.CancelledError:
+        LOGGER.error("Startup was cancelled:\n" + format_exc())
+        raise RuntimeError("Startup cancelled — open View Log in the Android app")
     except Exception:
-        LOGGER.error(format_exc())
+        LOGGER.error("Error during startup:\n" + format_exc())
+        raise
     finally:
-        loop.run_until_complete(stop_services())
+        try:
+            loop.run_until_complete(stop_services())
+        except BaseException:
+            LOGGER.error("Error during shutdown:\n" + format_exc())
         loop.stop()
         logging.shutdown()

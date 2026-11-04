@@ -124,6 +124,13 @@
             android:text="Open Admin / Telegram Login" />
 
         <Button
+            android:id="@+id/btn_log"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="View Log" />
+
+        <Button
             android:id="@+id/btn_stop"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

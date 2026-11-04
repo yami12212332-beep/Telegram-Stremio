@@ -1,6 +1,9 @@
 package com.yami.telegramstremio
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -10,11 +13,14 @@ import android.os.Looper
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -64,6 +70,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn_start).setOnClickListener { startServer() }
         findViewById<Button>(R.id.btn_stop).setOnClickListener { stopServer() }
         findViewById<Button>(R.id.btn_web).setOnClickListener { openWebUi() }
+        findViewById<Button>(R.id.btn_log).setOnClickListener { showLog() }
 
         requestNotificationPermission()
     }
@@ -135,6 +142,35 @@ class MainActivity : AppCompatActivity() {
             Intent(this, WebActivity::class.java)
                 .putExtra("url", "http://127.0.0.1:$p/admin/settings")
         )
+    }
+
+    private fun showLog() {
+        val file = File(filesDir, "app/server.log")
+        val text = try {
+            if (file.exists()) file.readText().takeLast(30000)
+            else "No log yet. Start the server first."
+        } catch (e: Exception) {
+            "Could not read log: ${e.message}"
+        }
+
+        val view = TextView(this).apply {
+            this.text = text
+            textSize = 11f
+            setTextIsSelectable(true)
+            setPadding(28, 20, 28, 20)
+        }
+        val scroll = ScrollView(this).apply { addView(view) }
+
+        AlertDialog.Builder(this)
+            .setTitle("Server log")
+            .setView(scroll)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Copy") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("server.log", text))
+                toast("Log copied")
+            }
+            .show()
     }
 
     private fun refreshStatus() {
