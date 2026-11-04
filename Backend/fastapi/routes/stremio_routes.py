@@ -8,8 +8,6 @@ from urllib.parse import quote, unquote
 import PTN
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.templating import Jinja2Templates
-from pyrogram.enums import ChatMemberStatus
-from pyrogram.errors import UserNotParticipant
 
 import httpx
 
@@ -28,6 +26,7 @@ from Backend.helper.metadata import resolve_cover_url, COMBINED_SEASON, COMBINED
 from Backend.helper.database import convert_objectid_to_str
 from Backend.helper.split_files import parse_combined_episodes, combined_name_key
 from Backend.helper.settings_manager import SettingsManager
+from Backend.helper.subscription_access import is_subscription_member, invalidate_membership_cache
 from Backend.helper.stream_formatter import format_stream
 from Backend.helper.subtitles import get_subtitles_for, stremio_subtitle_entries
 from Backend.logger import LOGGER
@@ -56,19 +55,6 @@ def build_proxy_url(original_url: str) -> str | None:
             url += f"&api_password={quote(settings.mediaflow_password, safe='')}"
         return url
     return f"{base}{original_url}"
-
-_membership_cache: dict = {}
-_MEMBERSHIP_TTL = 60
-_MEMBERSHIP_CACHE_MAX = 5000
-
-
-#----- Drop cached membership results for one user or all users
-def invalidate_membership_cache(user_id: int | None = None) -> None:
-    if user_id is None:
-        _membership_cache.clear()
-        return
-    for key in [k for k in _membership_cache if k[1] == user_id]:
-        _membership_cache.pop(key, None)
 
 
 #----- Effective (mode, allowed_tokens) for a title, honouring per-item overrides
@@ -1754,36 +1740,6 @@ async def _global_streams_for(
 
 
 #----- Cached check that a user is still in the subscription group (fail-open)
-async def _is_subscription_member(user_id: int) -> bool:
-    group_id = SettingsManager.current().subscription_group_id
-    if not group_id:
-        return True
-
-    cache_key = (group_id, user_id)
-    cached = _membership_cache.get(cache_key)
-    now_ts = time.monotonic()
-    if cached and (now_ts - cached[0]) < _MEMBERSHIP_TTL:
-        return cached[1]
-
-    try:
-        member = await StreamBot.get_chat_member(group_id, user_id)
-        result = member.status not in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED)
-    except UserNotParticipant:
-        result = False
-    except Exception as e:
-        LOGGER.warning(f"[SUBSCRIPTION] Membership check failed for user {user_id}: {e}")
-        return True
-
-    if len(_membership_cache) >= _MEMBERSHIP_CACHE_MAX:
-        for k in [k for k, v in _membership_cache.items() if (now_ts - v[0]) >= _MEMBERSHIP_TTL]:
-            _membership_cache.pop(k, None)
-        if len(_membership_cache) >= _MEMBERSHIP_CACHE_MAX:
-            _membership_cache.clear()
-
-    _membership_cache[cache_key] = (now_ts, result)
-    return result
-
-
 #----- External (M Searcher) stream options for titles absent from the library
 async def _external_streams_for(token: str, request: Request, *, imdb_id: str,
                                 media_type: str, season_num, episode_num,
@@ -1852,7 +1808,7 @@ async def _external_streams_for(token: str, request: Request, *, imdb_id: str,
     streams = []
     to_prefetch = []
     for candidate in selected:
-        request_id, pending = external_bot.register(token, candidate, title)
+        request_id, pending = await external_bot.register(token, candidate, title)
         to_prefetch.append(pending)
 
         name = f"🌐 {candidate.quality or candidate.size or 'M Searcher'}"
@@ -1916,7 +1872,7 @@ async def get_streams(
             and not token_data.get("subscription_exempt")
             and not token_data.get("expires_at")):
         user_id = token_data.get("user_id")
-        if user_id and not await _is_subscription_member(int(user_id)):
+        if user_id and not await is_subscription_member(int(user_id)):
             return {
                 "streams": [
                     {

@@ -187,11 +187,15 @@ def test_direct_file_candidate():
 
 
 def test_request_registry():
-    candidate = es.parse_candidate("《1.87 GB》Show 2026 1080p", 0, 0)
-    request_id, request = es.register("tok", candidate, "Show")
-    assert es.get_request(request_id, "tok") is request
-    assert es.get_request(request_id, "other") is None
-    assert es.get_request("missing") is None
+    async def run():
+        candidate = es.parse_candidate("《1.87 GB》Show 2026 1080p", 0, 0)
+        request_id, request = await es.register("tok", candidate, "Show")
+        assert await es.get_request(request_id, "tok") is request
+        assert await es.get_request(request_id, "other") is None
+        assert await es.get_request("missing") is None
+
+    import asyncio
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

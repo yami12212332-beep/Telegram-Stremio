@@ -103,3 +103,6 @@ If no options appear, check the log for `[MSEARCH]` warnings. Common causes:
 - The bridge is a fallback by default. With `EXTERNAL_ALWAYS=false`, a title that
   already has local streams will not show external options.
 - Only IMDb-based titles are supported (Kitsu/anime IDs are skipped).
+- Pending play links are stored in Mongo for 2 hours, so a restart between
+  selecting a stream and playing it still works.
+- `/ms/resolve` enforces the same subscription-group membership check as `/stream`.

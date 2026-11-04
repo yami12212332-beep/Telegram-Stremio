@@ -10,6 +10,7 @@ from Backend import __version__, db
 from Backend.fastapi import server
 from Backend.fastapi.main import app
 from Backend.helper import subscription_task_manager
+from Backend.helper import external_search
 from Backend.helper.link_checker import DeadLinkChecker
 from Backend.helper.pinger import ping
 from Backend.helper.pyro import restart_notification, setup_bot_commands
@@ -46,6 +47,7 @@ async def start_services():
 
         await db.connect()
         await asyncio.sleep(1.2)
+        await external_search.initialize_store()
 
         await SettingsManager.initialize(db)
         app.add_middleware(SessionMiddleware, secret_key=SettingsManager.current().session_secret or secrets.token_hex(32))

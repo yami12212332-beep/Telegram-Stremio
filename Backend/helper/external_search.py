@@ -18,6 +18,7 @@ import hashlib
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from pyrogram.errors import FloodWait
@@ -125,6 +126,110 @@ def _warn_once(key: str, message: str) -> None:
         return
     _WARNED.add(key)
     LOGGER.warning(f"[MSEARCH] {message}")
+
+
+#----- Mongo collection for pending/resolved play requests (None before startup/tests)
+def _requests_collection():
+    try:
+        from Backend import db as app_db
+        dbs = getattr(app_db, "dbs", None)
+        if not dbs or "tracking" not in dbs:
+            return None
+        return dbs["tracking"]["ms_requests"]
+    except Exception:
+        return None
+
+
+async def initialize_store() -> None:
+    """Create the TTL index used by the persisted request registry."""
+    collection = _requests_collection()
+    if collection is None:
+        return
+    try:
+        await collection.create_index("expires_at", expireAfterSeconds=0)
+    except Exception as exc:
+        _warn_once("store_index", f"could not create request TTL index: {exc}")
+
+
+def _request_doc(request: ExternalRequest) -> dict:
+    return {
+        "token": request.token,
+        "chat_id": request.chat_id,
+        "message_id": request.message_id,
+        "row": request.row,
+        "col": request.col,
+        "label": request.label,
+        "quality": request.quality,
+        "size": request.size,
+        "audio": request.audio,
+        "tamil": request.tamil,
+        "callback_data": request.callback_data,
+        "title": request.title,
+        "page": request.page,
+        "created_at": request.created_at,
+        "expires_at": datetime.utcnow() + timedelta(seconds=_REQUEST_TTL),
+        "resolved_chat_id": request.resolved_chat_id,
+        "resolved_message_id": request.resolved_message_id,
+        "filename": request.filename,
+    }
+
+
+def _request_from_doc(request_id: str, doc: dict) -> ExternalRequest:
+    return ExternalRequest(
+        request_id=request_id,
+        token=doc.get("token", ""),
+        chat_id=int(doc.get("chat_id") or 0),
+        message_id=int(doc.get("message_id") or 0),
+        row=int(doc.get("row") or 0),
+        col=int(doc.get("col") or 0),
+        label=doc.get("label", ""),
+        quality=doc.get("quality", ""),
+        size=doc.get("size", ""),
+        audio=doc.get("audio", ""),
+        tamil=bool(doc.get("tamil")),
+        callback_data=doc.get("callback_data", ""),
+        title=doc.get("title", ""),
+        created_at=float(doc.get("created_at") or time.time()),
+        page=int(doc.get("page") or 1),
+        resolved_chat_id=doc.get("resolved_chat_id"),
+        resolved_message_id=doc.get("resolved_message_id"),
+        filename=doc.get("filename", ""),
+    )
+
+
+async def _save_request(request: ExternalRequest) -> None:
+    collection = _requests_collection()
+    if collection is None:
+        return
+    try:
+        await collection.update_one(
+            {"_id": request.request_id},
+            {"$set": _request_doc(request)},
+            upsert=True,
+        )
+    except Exception as exc:
+        _warn_once("store_save", f"could not persist request state: {exc}")
+
+
+async def _load_request(request_id: str) -> Optional[ExternalRequest]:
+    collection = _requests_collection()
+    if collection is None:
+        return None
+    try:
+        doc = await collection.find_one({"_id": request_id})
+    except Exception:
+        return None
+    if not doc:
+        return None
+    if time.time() - float(doc.get("created_at") or 0) > _REQUEST_TTL:
+        try:
+            await collection.delete_one({"_id": request_id})
+        except Exception:
+            pass
+        return None
+    request = _request_from_doc(request_id, doc)
+    _REQUESTS[request_id] = request
+    return request
 
 
 #----- Current bridge configuration, or a clear reason why it is unavailable
@@ -841,11 +946,24 @@ async def search_best(title: str, year: Optional[int] = None,
     return []
 
 
+#----- Resolve the configured bot once so its peer id is cached after a restart
+async def _ensure_bot_peer(userbot) -> None:
+    settings = SettingsManager.current()
+    if not settings.external_bot:
+        return
+    try:
+        await _resolve_bot(userbot, settings.external_bot)
+    except Exception:
+        pass
+
+
 #----- Click one result and wait for the bot to send the actual file
 async def _click_and_wait(request: ExternalRequest, *, timeout: int) -> Message:
     userbot = botmod.Userbot
     if userbot is None:
         raise ExternalSearchError("No Telegram user session is connected")
+
+    await _ensure_bot_peer(userbot)
 
     # The result message is shared; serialize page changes and clicks.
     async with _PAGE_LOCK:
@@ -1003,6 +1121,8 @@ async def _load_direct_file(request: ExternalRequest) -> Message:
     if userbot is None:
         raise ExternalSearchError("No Telegram user session is connected")
 
+    await _ensure_bot_peer(userbot)
+
     try:
         message = await userbot.get_messages(request.chat_id, message_ids=request.message_id)
     except FloodWait as exc:
@@ -1039,6 +1159,7 @@ async def prepare_request(request: ExternalRequest) -> ExternalRequest:
         request.resolved_chat_id = copied.chat.id
         request.resolved_message_id = copied.id
         request.filename = _filename(file_message)
+        await _save_request(request)
         return request
 
 
@@ -1061,16 +1182,19 @@ def _prune_requests() -> None:
 
 
 #----- Register a candidate for later playback; returns the stable request id
-def register(token: str, candidate: Candidate, title: str) -> tuple[str, ExternalRequest]:
+async def register(token: str, candidate: Candidate, title: str) -> tuple[str, ExternalRequest]:
     _prune_requests()
     request_id = _make_request_id(
         token, candidate.chat_id, candidate.message_id, candidate.row, candidate.col,
         candidate.label, candidate.size,
     )
     existing = _REQUESTS.get(request_id)
+    if not existing:
+        existing = await _load_request(request_id)
     if existing and time.time() - existing.created_at <= _REQUEST_TTL:
         existing.token = token
         existing.title = title
+        await _save_request(existing)
         return request_id, existing
 
     request = ExternalRequest(
@@ -1091,12 +1215,15 @@ def register(token: str, candidate: Candidate, title: str) -> tuple[str, Externa
         page=candidate.page,
     )
     _REQUESTS[request_id] = request
+    await _save_request(request)
     return request_id, request
 
 
 #----- Look up a request, optionally checking that it belongs to the token
-def get_request(request_id: str, token: Optional[str] = None) -> Optional[ExternalRequest]:
+async def get_request(request_id: str, token: Optional[str] = None) -> Optional[ExternalRequest]:
     request = _REQUESTS.get(request_id)
+    if not request:
+        request = await _load_request(request_id)
     if not request:
         return None
     if time.time() - request.created_at > _REQUEST_TTL:

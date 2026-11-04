@@ -221,6 +221,19 @@ Fixes applied from this run:
 | PATCH validation | ✅ invalid staging channel returns 400 |
 | Prefetch toggle | ✅ enabled for the test, then disabled again |
 
+### P0 run 6 — persisted requests + security parity, 2026-11-04
+
+| Check | Result |
+|---|---|
+| Unresolved link across restart | ✅ registered S03E06, restarted, then resolved the saved URL — copied and streamed in 7.2s |
+| Resolved link across restart | ✅ restarted again; same URL returned 307 in **0.006s** with no second copy |
+| Peer cache | ✅ source bot peer is re-resolved before loading a post-restart message |
+| TTL | ✅ `ms_requests.expires_at` index auto-drops entries after 2h |
+| `/ms/resolve` access | ✅ mirrors the `/stream` subscription-group membership check |
+
+Fix: pending requests are mirrored to `ms_requests`, resolved state is written
+back, and `get_request`/`register` load from Mongo when the in-memory map is cold.
+
 ### P0 — validate the source bot (do this first)
 
 1. From the userbot account, send `House of the Dragon 2026 S03E02`.
@@ -252,7 +265,7 @@ If step 2 or 3 fails, adjust `external_search.py` before spending time on Nuvio.
 - `EXTERNAL_PREFETCH=true` → first play is fast / no duplicate copies.
 - Tamil label present/absent.
 - Token expired / data limit / subscription expired.
-- Server restart between `/stream` and play → 404 with a clear message.
+- Server restart between `/stream` and play → pending link still works (persisted).
 
 ### Edge cases
 
@@ -284,8 +297,8 @@ If step 2 or 3 fails, adjust `external_search.py` before spending time on Nuvio.
 7. **Tamil detection** — currently label-only. If the label lacks language, inspect
    the file caption after click (costs a copy) or tag manually.
 8. **Tests** — add the fake-userbot suite and endpoint tests to CI.
-8. **Security parity** — `/ms/resolve` checks token expiry/limits but not
-   subscription group membership; mirror the `/stream` checks.
+8. **Security parity** — ✅ `/ms/resolve` now mirrors the `/stream` subscription
+   group membership check.
 9. **Observability** — counters for searches/copies/failures, admin status card.
 10. **Legal review** — third-party source + redistribution/ToS risk.
 
@@ -297,8 +310,9 @@ If step 2 or 3 fails, adjust `external_search.py` before spending time on Nuvio.
   any local stream will not show them.
 - Tamil is detected from the **button label only**.
 - Only IMDb IDs; Kitsu/anime IDs are skipped.
-- Request state is in memory; a restart invalidates pending `/ms/resolve` URLs.
-- Single-process design; multiple uvicorn workers would not share `_REQUESTS`.
+- Request state is persisted in Mongo for 2 hours; pending links survive restarts.
+  Page navigation is serialized per process, so multiple uvicorn workers could
+  race on the same result message (the app normally runs a single worker).
 - `noforwards`/protected content blocks copying.
 - 2 GB per file on free accounts; 4 GB with Premium.
 - The source bot is third-party and can change UI/rate-limit/ban at any time.

@@ -21,6 +21,7 @@ from Backend.helper.encrypt import decode_string, encode_string
 from Backend.helper import external_search as external_bot
 from Backend.helper.pyro import get_thumb_download_target
 from Backend.helper.settings_manager import SettingsManager
+from Backend.helper.subscription_access import is_subscription_member
 from Backend.helper.utils import track_usage
 from Backend.helper.virtual_dl import resolve_virtual_parts, virtual_stream_generator
 from Backend.helper.zip_stream import resolve_zip_entry
@@ -286,7 +287,15 @@ async def resolve_external_stream(
     if token_data.get("limit_exceeded"):
         raise HTTPException(status_code=429, detail="Data limit reached")
 
-    pending = external_bot.get_request(request_id, token=token)
+    if (SettingsManager.current().subscription
+            and not token_data.get("is_admin")
+            and not token_data.get("subscription_exempt")
+            and not token_data.get("expires_at")):
+        user_id = token_data.get("user_id")
+        if user_id and not await is_subscription_member(int(user_id)):
+            raise HTTPException(status_code=403, detail="Join the subscription channel first")
+
+    pending = await external_bot.get_request(request_id, token=token)
     if pending is None:
         raise HTTPException(status_code=404, detail="This stream request expired; reopen the title")
 
