@@ -4,46 +4,61 @@ import android.content.Context
 import java.io.File
 
 class ConfigStore(context: Context) {
-    private val prefs = context.getSharedPreferences("telegram_stremio", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences("telegram_stremio_test", Context.MODE_PRIVATE)
+
+    // Build-time defaults come from android/local.properties (git-ignored) or
+    // -P/-TS_* Gradle properties. The repo contains no credentials.
+    companion object {
+        private val DEFAULT_API_ID = BuildConfig.DEFAULT_API_ID
+        private val DEFAULT_API_HASH = BuildConfig.DEFAULT_API_HASH
+        private val DEFAULT_BOT_TOKEN = BuildConfig.DEFAULT_BOT_TOKEN
+        private val DEFAULT_OWNER_ID = BuildConfig.DEFAULT_OWNER_ID
+        private val DEFAULT_TRACKING = BuildConfig.DEFAULT_TRACKING_URI
+        private val DEFAULT_STORAGE = BuildConfig.DEFAULT_STORAGE_URI
+        private val DEFAULT_SOURCE_BOT = BuildConfig.DEFAULT_SOURCE_BOT
+        private val DEFAULT_STAGING = BuildConfig.DEFAULT_STAGING
+        private val DEFAULT_PORT = BuildConfig.DEFAULT_PORT
+        private val DEFAULT_BASE_URL = BuildConfig.DEFAULT_BASE_URL
+    }
 
     var apiId: String
-        get() = prefs.getString("api_id", "") ?: ""
+        get() = prefs.getString("api_id", DEFAULT_API_ID) ?: DEFAULT_API_ID
         set(value) = prefs.edit().putString("api_id", value).apply()
 
     var apiHash: String
-        get() = prefs.getString("api_hash", "") ?: ""
+        get() = prefs.getString("api_hash", DEFAULT_API_HASH) ?: DEFAULT_API_HASH
         set(value) = prefs.edit().putString("api_hash", value).apply()
 
     var botToken: String
-        get() = prefs.getString("bot_token", "") ?: ""
+        get() = prefs.getString("bot_token", DEFAULT_BOT_TOKEN) ?: DEFAULT_BOT_TOKEN
         set(value) = prefs.edit().putString("bot_token", value).apply()
 
     var ownerId: String
-        get() = prefs.getString("owner_id", "") ?: ""
+        get() = prefs.getString("owner_id", DEFAULT_OWNER_ID) ?: DEFAULT_OWNER_ID
         set(value) = prefs.edit().putString("owner_id", value).apply()
 
     var trackingUri: String
-        get() = prefs.getString("tracking_uri", "") ?: ""
+        get() = prefs.getString("tracking_uri", DEFAULT_TRACKING) ?: DEFAULT_TRACKING
         set(value) = prefs.edit().putString("tracking_uri", value).apply()
 
     var storageUri: String
-        get() = prefs.getString("storage_uri", "") ?: ""
+        get() = prefs.getString("storage_uri", DEFAULT_STORAGE) ?: DEFAULT_STORAGE
         set(value) = prefs.edit().putString("storage_uri", value).apply()
 
     var externalBot: String
-        get() = prefs.getString("external_bot", "M1searcherbot") ?: "M1searcherbot"
+        get() = prefs.getString("external_bot", DEFAULT_SOURCE_BOT) ?: DEFAULT_SOURCE_BOT
         set(value) = prefs.edit().putString("external_bot", value).apply()
 
     var stagingChannel: String
-        get() = prefs.getString("staging_channel", "") ?: ""
+        get() = prefs.getString("staging_channel", DEFAULT_STAGING) ?: DEFAULT_STAGING
         set(value) = prefs.edit().putString("staging_channel", value).apply()
 
     var port: String
-        get() = prefs.getString("port", "8000") ?: "8000"
+        get() = prefs.getString("port", DEFAULT_PORT) ?: DEFAULT_PORT
         set(value) = prefs.edit().putString("port", value).apply()
 
     var baseUrl: String
-        get() = prefs.getString("base_url", "http://127.0.0.1:8000") ?: "http://127.0.0.1:8000"
+        get() = prefs.getString("base_url", DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
         set(value) = prefs.edit().putString("base_url", value).apply()
 
     var externalSearch: Boolean
@@ -61,7 +76,7 @@ class ConfigStore(context: Context) {
             appendLine("API_HASH=\"${apiHash.trim()}\"")
             appendLine("BOT_TOKEN=\"${botToken.trim()}\"")
             appendLine("OWNER_ID=\"${ownerId.trim()}\"")
-            appendLine("DATABASE=\"${trackingUri.trim()},${storageUri.trim()}\"")
+            appendLine("DATABASE=\"${trackingUri.trim()};${storageUri.trim()}\"")
             appendLine("PORT=\"${port.trim().ifBlank { "8000" }}\"")
             appendLine("BASE_URL=\"${baseUrl.trim().ifBlank { "http://127.0.0.1:8000" }}\"")
             appendLine("EXTERNAL_SEARCH=\"${if (externalSearch) "true" else "false"}\"")

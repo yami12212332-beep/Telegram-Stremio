@@ -1,0 +1,15 @@
+# Copy to local.properties (git-ignored) and edit.
+sdk.dir=/path/to/Android/Sdk
+TS_BUILD_PYTHON=/usr/bin/python3.11
+
+# Optional prefilled setup values. Leave blank to enter them in the app.
+TS_API_ID=
+TS_API_HASH=
+TS_BOT_TOKEN=
+TS_OWNER_ID=
+TS_TRACKING_URI=
+TS_STORAGE_URI=
+TS_SOURCE_BOT=M1searcherbot
+TS_STAGING=
+TS_PORT=8000
+TS_BASE_URL=http://127.0.0.1:8000

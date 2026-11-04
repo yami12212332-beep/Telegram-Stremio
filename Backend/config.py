@@ -20,7 +20,9 @@ class Telegram:
     BOT_TOKEN           = getenv("BOT_TOKEN", "")
 
     #----- Required: Database URIs
-    DATABASE = [db.strip() for db in (getenv("DATABASE") or "").split(",") if db.strip()]
+    _db_raw = getenv("DATABASE") or ""
+    _db_sep = ";" if ";" in _db_raw else ","
+    DATABASE = [db.strip() for db in _db_raw.split(_db_sep) if db.strip()]
 
     #----- Required: Server
     PORT     = _int_env("PORT", 8000)

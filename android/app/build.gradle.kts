@@ -1,8 +1,26 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.chaquo.python")
 }
+
+// Optional local defaults. android/local.properties is git-ignored, so the
+// repository never contains API hashes, bot tokens or Mongo credentials.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun localDefault(key: String, fallback: String = ""): String =
+    (project.findProperty(key) as String?)
+        ?: localProperties.getProperty(key)
+        ?: System.getenv(key)
+        ?: fallback
+
+fun quoted(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "com.yami.telegramstremio"
@@ -18,6 +36,17 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
+
+        buildConfigField("String", "DEFAULT_API_ID", quoted(localDefault("TS_API_ID")))
+        buildConfigField("String", "DEFAULT_API_HASH", quoted(localDefault("TS_API_HASH")))
+        buildConfigField("String", "DEFAULT_BOT_TOKEN", quoted(localDefault("TS_BOT_TOKEN")))
+        buildConfigField("String", "DEFAULT_OWNER_ID", quoted(localDefault("TS_OWNER_ID")))
+        buildConfigField("String", "DEFAULT_TRACKING_URI", quoted(localDefault("TS_TRACKING_URI")))
+        buildConfigField("String", "DEFAULT_STORAGE_URI", quoted(localDefault("TS_STORAGE_URI")))
+        buildConfigField("String", "DEFAULT_SOURCE_BOT", quoted(localDefault("TS_SOURCE_BOT", "M1searcherbot")))
+        buildConfigField("String", "DEFAULT_STAGING", quoted(localDefault("TS_STAGING")))
+        buildConfigField("String", "DEFAULT_PORT", quoted(localDefault("TS_PORT", "8000")))
+        buildConfigField("String", "DEFAULT_BASE_URL", quoted(localDefault("TS_BASE_URL", "http://127.0.0.1:8000")))
     }
 
     buildTypes {
@@ -44,8 +73,9 @@ android {
 chaquopy {
     defaultConfig {
         version = "3.11"
-        // UV-managed CPython 3.11, used only at build time by Chaquopy's pip.
-        buildPython("/home/yami/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/bin/python3.11")
+        // Set TS_BUILD_PYTHON in android/local.properties or the environment
+        // if python3.11 is not on PATH.
+        buildPython(localDefault("TS_BUILD_PYTHON", "python3.11"))
 
         pip {
             // FastAPI 0.99 + Pydantic 1 avoids the native pydantic-core build.
