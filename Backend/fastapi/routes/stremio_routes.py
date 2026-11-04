@@ -1814,13 +1814,22 @@ async def _external_streams_for(token: str, request: Request, *, imdb_id: str,
         return []
 
     try:
-        candidates = await asyncio.wait_for(
-            external_bot.search_best(
-                title, year, season_num, episode_num,
-                timeout=settings.external_timeout,
-            ),
-            timeout=settings.external_timeout + 8,
-        )
+        if is_series:
+            candidates = await asyncio.wait_for(
+                external_bot.search_episode(
+                    title, season_num, episode_num,
+                    timeout=settings.external_timeout + 10,
+                ),
+                timeout=settings.external_timeout + 25,
+            )
+        else:
+            candidates = await asyncio.wait_for(
+                external_bot.search_best(
+                    title, year,
+                    timeout=settings.external_timeout,
+                ),
+                timeout=settings.external_timeout + 8,
+            )
     except (asyncio.TimeoutError, external_bot.ExternalSearchBusy) as exc:
         LOGGER.warning(f"[MSEARCH] '{query}' unavailable: {str(exc) or type(exc).__name__}")
         return []
@@ -1833,6 +1842,8 @@ async def _external_streams_for(token: str, request: Request, *, imdb_id: str,
         per_quality=settings.external_variants,
         tamil_first=settings.external_tamil_first,
         max_results=settings.external_max_results,
+        season=season_num if is_series else None,
+        episode=episode_num if is_series else None,
     )
     if not selected:
         return []
@@ -1844,7 +1855,7 @@ async def _external_streams_for(token: str, request: Request, *, imdb_id: str,
         request_id, pending = external_bot.register(token, candidate, title)
         to_prefetch.append(pending)
 
-        name = f"🌐 {candidate.quality or 'HD'}"
+        name = f"🌐 {candidate.quality or candidate.size or 'M Searcher'}"
         if candidate.tamil:
             name += " · Tamil"
         elif candidate.audio:
@@ -1857,7 +1868,7 @@ async def _external_streams_for(token: str, request: Request, *, imdb_id: str,
             "url": f"{base}/ms/resolve/{token}/{request_id}",
             "size_bytes": parse_size_to_bytes(candidate.size),
             "sort_name": candidate.quality or "HD",
-            "behaviorHints": {"bingeGroup": f"msearcher-{candidate.quality or 'hd'}"},
+            "behaviorHints": {"bingeGroup": f"msearcher-{candidate.quality or 'hd'}-{request_id[:8]}"},
         })
 
     if settings.external_prefetch and to_prefetch:

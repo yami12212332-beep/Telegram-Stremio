@@ -1844,12 +1844,13 @@ async def update_settings_api(payload: dict) -> dict:
         try:
             payload["external_max_results"] = max(1, min(20, int(payload["external_max_results"])))
         except (ValueError, TypeError):
-            payload["external_max_results"] = 6
+            payload["external_max_results"] = 20
     if "external_variants" in payload:
         try:
-            payload["external_variants"] = max(1, min(3, int(payload["external_variants"])))
+            # 0 = show every available source, not just one per quality
+            payload["external_variants"] = max(0, min(20, int(payload["external_variants"])))
         except (ValueError, TypeError):
-            payload["external_variants"] = 1
+            payload["external_variants"] = 0
     for key in ("external_bot", "staging_channel"):
         if key in payload:
             value = str(payload[key] or "").strip()

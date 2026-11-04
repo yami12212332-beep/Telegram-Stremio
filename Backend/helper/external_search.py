@@ -38,6 +38,9 @@ _SEARCH_LOCK = asyncio.Lock()
 _SIZE_RE = re.compile(r"[\[《<【]\s*([\d.]+\s*(?:GB|MB))\s*[\]》>】]", re.IGNORECASE)
 _QUALITY_RE = re.compile(r"\b(2160p?|1440p?|1080p?|720p?|480p?|360p?)\b", re.IGNORECASE)
 _TAMIL_RE = re.compile(r"\b(tamil|tam)\b", re.IGNORECASE)
+_SEASON_EPISODE_RE = re.compile(r"\bS(\d{1,3})\s*[Ee]P?\s*(\d{1,4})\b")
+_EPISODE_ONLY_RE = re.compile(r"\bE(?:P)?\s*(\d{1,4})\b", re.IGNORECASE)
+_SEASON_ONLY_RE = re.compile(r"\bS(\d{1,3})\b", re.IGNORECASE)
 _NO_RESULTS_RE = re.compile(
     r"no results|not found|couldn'?t find|no matches|retry with the correct spelling",
     re.IGNORECASE,
@@ -79,6 +82,8 @@ class Candidate:
     callback_data: str = ""
     chat_id: int = 0
     message_id: int = 0
+    season: Optional[int] = None
+    episode: Optional[int] = None
 
 
 @dataclass
@@ -155,11 +160,16 @@ def build_query_variants(title: str, year: Optional[int] = None,
 
     if season is not None and episode is not None:
         try:
-            # M Searcher matches tokens: "S03 EP02" works, "S03E02" does not.
-            # The year is deliberately omitted: the source index often labels a
-            # title with a different year, which makes the query match nothing.
-            s = f"S{int(season):02d} EP{int(episode):02d}"
-            return [f"{title} {s}", f"{title} S{int(season):02d}", title]
+            season = int(season)
+            episode = int(episode)
+            # Source bots are inconsistent: some index "S01E01", others "S01 EP01".
+            # Always try the compact form first, then the spaced form, then the season.
+            return [
+                f"{title} S{season:02d}E{episode:02d}",
+                f"{title} S{season:02d} EP{episode:02d}",
+                f"{title} S{season:02d}",
+                title,
+            ]
         except (TypeError, ValueError):
             return [title]
 
@@ -187,6 +197,19 @@ def parse_candidate(text: str, row: int, col: int) -> Optional[Candidate]:
     audio_match = _AUDIO_RE.search(label)
     audio = audio_match.group(1).lower() if audio_match else ""
 
+    season = episode = None
+    episode_match = _SEASON_EPISODE_RE.search(label)
+    if episode_match:
+        season = int(episode_match.group(1))
+        episode = int(episode_match.group(2))
+    else:
+        episode_match = _EPISODE_ONLY_RE.search(label)
+        if episode_match:
+            episode = int(episode_match.group(1))
+        season_match = _SEASON_ONLY_RE.search(label)
+        if season_match:
+            season = int(season_match.group(1))
+
     return Candidate(
         label=label or raw,
         size=size,
@@ -195,6 +218,8 @@ def parse_candidate(text: str, row: int, col: int) -> Optional[Candidate]:
         tamil=bool(_TAMIL_RE.search(label)) or audio == "tamil",
         row=row,
         col=col,
+        season=season,
+        episode=episode,
     )
 
 
@@ -243,11 +268,34 @@ def _size_bytes(size: str) -> int:
 
 #----- Prefer Tamil, then better quality, then larger files
 def select_candidates(candidates: List[Candidate], *, per_quality: int = 1,
-                      tamil_first: bool = True, max_results: int = 6) -> List[Candidate]:
+                      tamil_first: bool = True, max_results: int = 6,
+                      season: Optional[int] = None,
+                      episode: Optional[int] = None) -> List[Candidate]:
     if not candidates:
         return []
 
     pool = list(candidates)
+
+    #----- Never offer an episode other than the one the player asked for
+    if episode is not None:
+        wanted_episode = int(episode)
+        wanted_season = int(season) if season is not None else None
+        pool = [
+            candidate for candidate in pool
+            if candidate.episode == wanted_episode
+            and (wanted_season is None or candidate.season is None
+                 or candidate.season == wanted_season)
+        ]
+        if not pool:
+            return []
+    elif season is not None:
+        wanted_season = int(season)
+        pool = [
+            candidate for candidate in pool
+            if candidate.season is None or candidate.season == wanted_season
+        ]
+        if not pool:
+            return []
 
     def rank(c: Candidate):
         return (
@@ -258,7 +306,7 @@ def select_candidates(candidates: List[Candidate], *, per_quality: int = 1,
         )
 
     ordered = sorted(pool, key=rank)
-    per_quality = max(1, int(per_quality))
+    per_quality = max(0, int(per_quality))  # 0 = every available source
     max_results = max(1, int(max_results))
 
     counts: dict[str, int] = {}
@@ -266,7 +314,7 @@ def select_candidates(candidates: List[Candidate], *, per_quality: int = 1,
     selected: List[Candidate] = []
     for candidate in ordered:
         quality = candidate.quality or "hd"
-        if counts.get(quality, 0) >= per_quality:
+        if per_quality and counts.get(quality, 0) >= per_quality:
             continue
         key = (quality, candidate.size, candidate.label.lower())
         if key in seen:
@@ -335,6 +383,123 @@ async def _wait_for_results(userbot, chat_id: int, bot_id: int, sent: Message,
 
 
 #----- Search the source bot (cached) and return all parsed file options
+async def _search_message(query: str, timeout: int):
+    settings = SettingsManager.current()
+    userbot = botmod.Userbot
+    bot = await _resolve_bot(userbot, settings.external_bot)
+    try:
+        sent = await userbot.send_message(bot.id, query)
+    except FloodWait as exc:
+        raise ExternalSearchBusy(exc.value) from exc
+
+    deadline = time.monotonic() + timeout
+    return await _wait_for_results(userbot, bot.id, bot.id, sent, deadline)
+
+
+#----- Does a candidate belong to the requested season/episode?
+def _episode_match(candidate: Candidate, season: Optional[int], episode: int) -> bool:
+    if candidate.episode != episode:
+        return False
+    return season is None or candidate.season is None or candidate.season == season
+
+
+#----- Locate a "Next" button and return Pyrogram's (column, row)
+def _next_button(message: Message):
+    markup = getattr(message, "reply_markup", None)
+    rows = getattr(markup, "inline_keyboard", None) or []
+    for row_idx, row in enumerate(rows):
+        for col_idx, button in enumerate(row or []):
+            text = (getattr(button, "text", "") or "").lower()
+            if "next" in text and getattr(button, "callback_data", None):
+                return col_idx, row_idx
+    return None
+
+
+#----- Episode query forms; source bots index either S01E01 or S01 EP01
+def build_episode_queries(title: str, season: int, episode: int) -> List[str]:
+    title = re.sub(r"\s+", " ", str(title or "")).strip()[:140]
+    if not title:
+        return []
+    try:
+        season, episode = int(season), int(episode)
+    except (TypeError, ValueError):
+        return [title]
+
+    queries = [
+        f"{title} S{season:02d}E{episode:02d}",
+        f"{title} S{season:02d}E{episode}",
+        f"{title} S{season:02d} EP{episode:02d}",
+        f"{title} S{season:02d}",
+    ]
+    return list(dict.fromkeys(queries))
+
+
+def _is_episode_query(query: str) -> bool:
+    return bool(_SEASON_EPISODE_RE.search(query) or _EPISODE_ONLY_RE.search(query))
+
+
+#----- Walk the result pages until the requested episode shows up
+async def _paginate_for_episode(userbot, chat_id: int, message: Message,
+                                season: Optional[int], episode: int, *,
+                                max_pages: int = 5, deadline: float) -> List[Candidate]:
+    seen: set[str] = set()
+    for _ in range(max_pages):
+        matches = [
+            candidate for candidate in candidates_from_message(message)
+            if _episode_match(candidate, season, episode)
+        ]
+        if matches:
+            return matches
+        if time.monotonic() >= deadline:
+            break
+
+        button = _next_button(message)
+        if not button:
+            break
+        col, row = button
+        markup = getattr(message, "reply_markup", None)
+        rows = getattr(markup, "inline_keyboard", None) or []
+        callback = ""
+        try:
+            callback = str(rows[row][col].callback_data)
+        except (IndexError, AttributeError):
+            pass
+        if callback and callback in seen:
+            break
+        if callback:
+            seen.add(callback)
+
+        old_text = (getattr(message, "text", "") or "")[:200]
+        try:
+            await message.click(col, row)
+        except FloodWait as exc:
+            raise ExternalSearchBusy(exc.value) from exc
+        except Exception as exc:
+            _warn_once("pagination", f"Could not page M Searcher results: {exc}")
+            break
+
+        fresh = None
+        edit_deadline = min(deadline, time.monotonic() + 4)
+        while time.monotonic() < edit_deadline:
+            await asyncio.sleep(0.5)
+            try:
+                fresh = await userbot.get_messages(chat_id, message_ids=message.id)
+            except FloodWait as exc:
+                raise ExternalSearchBusy(exc.value) from exc
+            except Exception:
+                fresh = None
+            if fresh and (getattr(fresh, "text", "") or "")[:200] != old_text:
+                break
+        if not fresh:
+            break
+        message = fresh
+
+    return [
+        candidate for candidate in candidates_from_message(message)
+        if _episode_match(candidate, season, episode)
+    ]
+
+
 async def search_candidates(query: str, *, timeout: Optional[int] = None) -> List[Candidate]:
     settings = _config()
     key = _cache_key(query)
@@ -357,19 +522,63 @@ async def search_candidates(query: str, *, timeout: Optional[int] = None) -> Lis
         if cached and time.time() - cached[0] < _SEARCH_CACHE_TTL:
             return list(cached[1])
 
-        userbot = botmod.Userbot
-        bot = await _resolve_bot(userbot, settings.external_bot)
-        try:
-            sent = await userbot.send_message(bot.id, query)
-        except FloodWait as exc:
-            raise ExternalSearchBusy(exc.value) from exc
-
-        deadline = time.monotonic() + timeout
-        _, candidates = await _wait_for_results(userbot, bot.id, bot.id, sent, deadline)
+        _, candidates = await _search_message(query, timeout)
 
         _SEARCH_CACHE[key] = (time.time(), candidates)
         LOGGER.info(f"[MSEARCH] '{query}' -> {len(candidates)} option(s)")
         return list(candidates)
+    finally:
+        _SEARCH_LOCK.release()
+
+
+#----- Find one episode, paging through season-wide results when needed
+async def search_episode(title: str, season: int, episode: int, *,
+                         timeout: Optional[int] = None) -> List[Candidate]:
+    settings = _config()
+    key = f"episode:{_cache_key(title)}:{season}:{episode}"
+    cached = _SEARCH_CACHE.get(key)
+    if cached and time.time() - cached[0] < _SEARCH_CACHE_TTL:
+        return list(cached[1])
+
+    timeout = max(8, min(60, int(timeout or settings.external_timeout + 10)))
+    try:
+        await asyncio.wait_for(_SEARCH_LOCK.acquire(), timeout=timeout)
+    except asyncio.TimeoutError as exc:
+        raise ExternalSearchBusy(3, "Another M Searcher request is running") from exc
+
+    try:
+        cached = _SEARCH_CACHE.get(key)
+        if cached and time.time() - cached[0] < _SEARCH_CACHE_TTL:
+            return list(cached[1])
+
+        userbot = botmod.Userbot
+        deadline = time.monotonic() + timeout
+        for query in build_episode_queries(title, season, episode):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                message, candidates = await _search_message(
+                    query, max(1, min(int(remaining), settings.external_timeout))
+                )
+            except ExternalSearchEmpty as exc:
+                LOGGER.info(f"[MSEARCH] '{query}' -> {exc}")
+                continue
+
+            matches = [
+                candidate for candidate in candidates
+                if _episode_match(candidate, season, episode)
+            ]
+            if not matches and _is_episode_query(query):
+                matches = await _paginate_for_episode(
+                    userbot, message.chat.id, message, season, episode, deadline=deadline,
+                )
+
+            if matches:
+                _SEARCH_CACHE[key] = (time.time(), matches)
+                LOGGER.info(f"[MSEARCH] '{query}' -> {len(matches)} episode option(s)")
+                return list(matches)
+        return []
     finally:
         _SEARCH_LOCK.release()
 

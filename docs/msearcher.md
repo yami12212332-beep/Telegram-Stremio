@@ -53,19 +53,25 @@ EXTERNAL_ALWAYS="false"
 # Seconds to wait for the source bot (3-30).
 EXTERNAL_TIMEOUT="8"
 
-# Number of stream options (1-20) and copies per quality (1-3).
-EXTERNAL_MAX_RESULTS="6"
-EXTERNAL_VARIANTS="1"
+# Number of stream options (1-20) and sources per quality (0 = every source).
+EXTERNAL_MAX_RESULTS="20"
+EXTERNAL_VARIANTS="0"
 ```
 
 Existing databases pick these values up as defaults; saving the Settings page also
 persists them. There is no dedicated web form yet — use `config.env`.
 
-The bridge searches episodes as `title S03 EP02` and deliberately omits the year:
-the source index may label the same show with a different year, and including it
-makes the bot return nothing. If the specific query has no hits it retries
-`title S03`, then `title`. A bot that answers a single match by sending the file
-directly (instead of a button list) is handled as one stream option.
+The bridge searches episodes as `S01E01`, then `S01E1`, then `S01 EP01`, then the
+season. Results are filtered to the exact season/episode, and episode-specific
+results are paged (up to 5 pages) until the requested episode is found. If the
+source does not have that episode, no external options are shown rather than
+playing a different one. `EXTERNAL_VARIANTS=0` exposes every available source;
+a positive value caps how many sources are listed per quality.
+
+The year is deliberately omitted from episode queries: the source index may
+label the same show with a different year, and including it makes the bot return
+nothing. A bot that answers a single match by sending the file directly
+(instead of a button list) is handled as one stream option.
 
 ## First test
 

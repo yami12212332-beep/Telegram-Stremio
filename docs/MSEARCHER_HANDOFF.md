@@ -71,8 +71,8 @@ EXTERNAL_TAMIL_FIRST="true"          # prefer Tamil labels
 EXTERNAL_PREFETCH="false"            # copy offered files immediately
 EXTERNAL_ALWAYS="false"              # also for titles already local
 EXTERNAL_TIMEOUT="8"                 # seconds, 3-30
-EXTERNAL_MAX_RESULTS="6"             # options, 1-20
-EXTERNAL_VARIANTS="1"                # copies per quality, 1-3
+EXTERNAL_MAX_RESULTS="20"            # options, 1-20
+EXTERNAL_VARIANTS="0"                # 0 = every source, or cap per quality
 ```
 
 Staging channel requirements:
@@ -134,21 +134,43 @@ The addon itself was not started; this validated the bot side only.
 | Restart | ✅ pending request IDs become 404 (expected, in-memory registry) |
 | Restricted content (>2 GB) | ❌ not tested |
 
-Fixes applied from this run:
+Fixes applied from run 1:
 
-- `build_query` emits `S03 EP02` (the bot token-matches; `S03E02` finds nothing) and
-  omits the year for episodes (the source index year can differ).
-- `search_best` tries `title S03 EP02` → `title S03` → `title`, and stops early
-  when the bot answers "No results" instead of waiting for the full timeout.
+- `build_query` emits `SxxExx` (and the old spaced form as a fallback) and omits
+  the year for episodes, because the source index year can differ.
+- `search_best` tries progressively broader movie queries and stops early on
+  "No results" instead of waiting out the timeout.
 - `_SIZE_RE` accepts `[...]` / `【...】` as well as `《...》` / `<...>`.
 - `_QUALITY_RE` accepts `1080` as well as `1080p`, normalized to `1080p`.
 - A direct file reply (single match) becomes a synthetic candidate with no
   callback data; `prepare_request` copies that message without clicking.
 - **`message.click` axis bug**: Pyrogram takes `(x, y)` = `(column, row)`; the
-  bridge passed `(row, col)`, so every non-zero row failed with
-  "The button at position ... doesn't exist".
-- The 401 handler now treats `/ms/` as an API path (JSON 401) instead of
-  redirecting to `/login`, matching `/dl/` and `/stremio/`.
+  bridge passed `(row, col)`, so every non-zero row failed.
+- `/ms/` now returns a JSON 401 instead of redirecting to `/login`.
+
+### P0 run 2 — series episodes and all sources, 2026-11-04
+
+| Check | Result |
+|---|---|
+| Exact episode query | ⚠️ bots index either `S01E01` (VisionQuest) or `S01 EP01` (House of the Dragon); one form alone misses half the shows |
+| Season fallback | ❌ `VisionQuest S01 EP01` → no results, then `VisionQuest S01` returned page 1 (E04-E07); the bridge played the **wrong episode** |
+| Episode filtering | ✅ candidates now carry parsed season/episode; different episodes are never offered |
+| Episode pagination | ✅ bounded walk (max 5 pages) of `S01E1`-style results; matches are cached |
+| VisionQuest S01E01 | ✅ 3 sources (`1.44GB`, `426.63MB`, `267.96MB`), all the same episode |
+| House of the Dragon S03E02 | ✅ falls through `S03E02` → `S03E2` → `S03 EP02`, then returns 3 sources |
+| Heart Beat S01E01 | ✅ no options returned — the source's `S01E1` result set ends at E10 on page 4, so E01 is genuinely absent |
+| All sources | ✅ `EXTERNAL_VARIANTS=0` + `EXTERNAL_MAX_RESULTS=20`; Dorothy now exposes 10 options instead of 3 |
+| Stream grouping | ✅ `bingeGroup` is unique per request so players do not collapse variants |
+
+Fixes applied from this run:
+
+- Parse `SxxExx`, `Sxx EPxx` and `EPxx` from labels into `Candidate.season/episode`.
+- `build_episode_queries` tries `S01E01`, `S01E1`, `S01 EP01`, then `S01`.
+- `search_episode` filters by the requested episode and pages through episode-specific
+  results (max 5 pages) instead of accepting whatever page 1 returned.
+- `select_candidates` refuses to return a different episode than requested.
+- `EXTERNAL_VARIANTS=0` means every available source; `EXTERNAL_MAX_RESULTS` default 20.
+- Stream names fall back to the file size when the label has no quality token.
 
 ### P0 — validate the source bot (do this first)
 
@@ -197,11 +219,12 @@ If step 2 or 3 fails, adjust `external_search.py` before spending time on Nuvio.
 
 ## 6. What still needs doing (prioritized)
 
-1. **P0 validation** (above) — determines whether the whole approach survives.
+1. **P0 validation** (above) — core path passes; restricted/`noforwards` and
+   >2 GB files still need a live check.
 2. **Settings page card** — toggle, bot username, staging channel, Tamil/prefetch/
    variants/timeouts. API validation exists, UI does not.
-3. **Pagination** — source results have pages; currently only the first result
-   message is parsed.
+3. **Pagination** — episode searches now walk up to 5 pages; season-wide and
+   movie searches still parse only the first result message.
 4. **Dedupe / duplicate-protection interaction** — if `external_always` is on and
    the same file is already indexed, the receiver may delete the copy while the
    player holds a direct `/dl` link. Detect and redirect to the existing stream, or

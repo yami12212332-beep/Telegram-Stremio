@@ -181,16 +181,17 @@ class Settings:
     @property
     def external_max_results(self) -> int:
         try:
-            return max(1, min(20, int(self._d.get("external_max_results", 6))))
+            return max(1, min(20, int(self._d.get("external_max_results", 20))))
         except (TypeError, ValueError):
-            return 6
+            return 20
 
     @property
     def external_variants(self) -> int:
         try:
-            return max(1, min(3, int(self._d.get("external_variants", 1))))
+            # 0 = every available source per quality / for the episode
+            return max(0, min(20, int(self._d.get("external_variants", 0))))
         except (TypeError, ValueError):
-            return 1
+            return 0
 
     @property
     def anime_channels(self) -> List[str]:

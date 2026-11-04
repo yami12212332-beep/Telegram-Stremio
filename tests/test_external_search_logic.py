@@ -72,8 +72,9 @@ from Backend.helper import external_search as es  # noqa: E402
 
 
 def test_query_variants():
-    assert es.build_query("House of the Dragon", 2022, 3, 2) == "House of the Dragon S03 EP02"
+    assert es.build_query("House of the Dragon", 2022, 3, 2) == "House of the Dragon S03E02"
     assert es.build_query_variants("House of the Dragon", 2022, 3, 2) == [
+        "House of the Dragon S03E02",
         "House of the Dragon S03 EP02",
         "House of the Dragon S03",
         "House of the Dragon",
@@ -84,23 +85,66 @@ def test_query_variants():
     ]
 
 
+def test_episode_queries():
+    assert es.build_episode_queries("Heart Beat", 1, 1) == [
+        "Heart Beat S01E01",
+        "Heart Beat S01E1",
+        "Heart Beat S01 EP01",
+        "Heart Beat S01",
+    ]
+    assert es.build_episode_queries("House of the Dragon", 3, 2) == [
+        "House of the Dragon S03E02",
+        "House of the Dragon S03E2",
+        "House of the Dragon S03 EP02",
+        "House of the Dragon S03",
+    ]
+
+
 def test_label_parsing():
     cases = {
-        "《827.11 MB》House of the Dragon 2026 720p S03EP08": ("827.11MB", "720p"),
-        "《1.87 GB》House of the Dragon 2026 1080p S03EP08": ("1.87GB", "1080p"),
-        "《1.65 GB》House of the Dragon 2026 \xa0 1080 S03EP06": ("1.65GB", "1080p"),
-        "[3.52 GB] Swapped 2026 1080p Tam + Tel + Hin + En": ("3.52GB", "1080p"),
-        "[513.09 MB] Swapped 2026 Tam + Tel + Hin": ("513.09MB", ""),
+        "《827.11 MB》House of the Dragon 2026 720p S03EP08": ("827.11MB", "720p", 3, 8),
+        "《1.87 GB》House of the Dragon 2026 1080p S03EP08": ("1.87GB", "1080p", 3, 8),
+        "《1.65 GB》House of the Dragon 2026 \xa0 1080 S03EP06": ("1.65GB", "1080p", 3, 6),
+        "[3.52 GB] Swapped 2026 1080p Tam + Tel + Hin + En": ("3.52GB", "1080p", None, None),
+        "[513.09 MB] Swapped 2026 Tam + Tel + Hin": ("513.09MB", "", None, None),
+        "《1.44 GB》VisionQuest Episode 01 S01E01": ("1.44GB", "", 1, 1),
+        "《749.28 MB》Heart Beat The Final Encounter 1080p S01E100": ("749.28MB", "1080p", 1, 100),
     }
-    for label, (size, quality) in cases.items():
+    for label, (size, quality, season, episode) in cases.items():
         candidate = es.parse_candidate(label, 0, 0)
         assert candidate is not None, label
         assert candidate.size == size, label
         assert candidate.quality == quality, label
+        assert candidate.season == season, label
+        assert candidate.episode == episode, label
 
     assert es.parse_candidate("😍 New Dating BoT 😘", 0, 0) is None
     assert es.parse_candidate("📚 Page 1/3", 0, 0) is None
     assert es.parse_candidate("Next ⏩", 0, 0) is None
+
+
+def test_episode_filtering():
+    ep1 = es.parse_candidate("《1.44 GB》VisionQuest Episode 01 S01E01", 0, 0)
+    ep7 = es.parse_candidate("《1.61 GB》VisionQuest 2026 1080p S01EP07", 1, 0)
+    ep100 = es.parse_candidate("《749.28 MB》Heart Beat 1080p S01E100", 2, 0)
+
+    selected = es.select_candidates([ep7, ep100, ep1], per_quality=0, max_results=20,
+                                    season=1, episode=1)
+    assert [c.episode for c in selected] == [1]
+
+    # A season-wide page without the requested episode must not fall back to another one
+    assert es.select_candidates([ep7, ep100], per_quality=0, max_results=20,
+                                season=1, episode=1) == []
+
+
+def test_all_sources_per_quality():
+    candidates = [
+        es.parse_candidate("《1.87 GB》Show 1080p S01E01", 0, 0),
+        es.parse_candidate("《1.44 GB》Show 1080p S01E01", 1, 0),
+        es.parse_candidate("《900 MB》Show 1080p S01E01", 2, 0),
+    ]
+    assert len(es.select_candidates(candidates, per_quality=0, max_results=20)) == 3
+    assert len(es.select_candidates(candidates, per_quality=1, max_results=20)) == 1
 
 
 def test_tamil_ranking():
@@ -140,7 +184,10 @@ def test_request_registry():
 
 if __name__ == "__main__":
     test_query_variants()
+    test_episode_queries()
     test_label_parsing()
+    test_episode_filtering()
+    test_all_sources_per_quality()
     test_tamil_ranking()
     test_direct_file_candidate()
     test_request_registry()
