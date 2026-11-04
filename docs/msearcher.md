@@ -53,8 +53,8 @@ EXTERNAL_ALWAYS="false"
 # Seconds to wait for the source bot (3-30).
 EXTERNAL_TIMEOUT="8"
 
-# Number of stream options (1-20) and sources per quality (0 = every source).
-EXTERNAL_MAX_RESULTS="20"
+# Number of stream options (1-100) and sources per quality (0 = every source).
+EXTERNAL_MAX_RESULTS="50"
 EXTERNAL_VARIANTS="0"
 ```
 

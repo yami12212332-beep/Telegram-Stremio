@@ -71,7 +71,7 @@ EXTERNAL_TAMIL_FIRST="true"          # prefer Tamil labels
 EXTERNAL_PREFETCH="false"            # copy offered files immediately
 EXTERNAL_ALWAYS="false"              # also for titles already local
 EXTERNAL_TIMEOUT="8"                 # seconds, 3-30
-EXTERNAL_MAX_RESULTS="20"            # options, 1-20
+EXTERNAL_MAX_RESULTS="50"            # options, 1-100
 EXTERNAL_VARIANTS="0"                # 0 = every source, or cap per quality
 ```
 
@@ -159,8 +159,20 @@ Fixes applied from run 1:
 | VisionQuest S01E01 | ✅ 3 sources (`1.44GB`, `426.63MB`, `267.96MB`), all the same episode |
 | House of the Dragon S03E02 | ✅ falls through `S03E02` → `S03E2` → `S03 EP02`, then returns 3 sources |
 | Heart Beat S01E01 | ✅ no options returned — the source's `S01E1` result set ends at E10 on page 4, so E01 is genuinely absent |
-| All sources | ✅ `EXTERNAL_VARIANTS=0` + `EXTERNAL_MAX_RESULTS=20`; Dorothy now exposes 10 options instead of 3 |
+| All sources | ✅ `EXTERNAL_VARIANTS=0` + `EXTERNAL_MAX_RESULTS=50`; Dorothy now exposes 10 options instead of 3 |
 | Stream grouping | ✅ `bingeGroup` is unique per request so players do not collapse variants |
+
+### P0 run 3 — movie pagination, 2026-11-04
+
+| Check | Result |
+|---|---|
+| Bot header | `Baasha 1995` → `Total Results: 39`, `Page 1/4` (10+10+10+9 file buttons) |
+| Old behaviour | ❌ only page 1 parsed → 10 options, the other 29 never fetched |
+| Movie pagination | ✅ walks all `Next` pages and aggregates; 38 unique buttons after dropping one duplicate |
+| Display cap | ✅ raised from 20 to 50 (API accepts 1-100) so the full result set is exposed |
+
+Fix: `search_all` now collects every page for movie searches (max 5 pages) before
+`select_candidates` applies the display cap.
 
 Fixes applied from this run:
 
@@ -169,7 +181,7 @@ Fixes applied from this run:
 - `search_episode` filters by the requested episode and pages through episode-specific
   results (max 5 pages) instead of accepting whatever page 1 returned.
 - `select_candidates` refuses to return a different episode than requested.
-- `EXTERNAL_VARIANTS=0` means every available source; `EXTERNAL_MAX_RESULTS` default 20.
+- `EXTERNAL_VARIANTS=0` means every available source; `EXTERNAL_MAX_RESULTS` default 50.
 - Stream names fall back to the file size when the label has no quality token.
 
 ### P0 — validate the source bot (do this first)

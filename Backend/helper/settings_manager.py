@@ -181,9 +181,9 @@ class Settings:
     @property
     def external_max_results(self) -> int:
         try:
-            return max(1, min(20, int(self._d.get("external_max_results", 20))))
+            return max(1, min(100, int(self._d.get("external_max_results", 50))))
         except (TypeError, ValueError):
-            return 20
+            return 50
 
     @property
     def external_variants(self) -> int:

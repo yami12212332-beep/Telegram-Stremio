@@ -531,6 +531,120 @@ async def search_candidates(query: str, *, timeout: Optional[int] = None) -> Lis
         _SEARCH_LOCK.release()
 
 
+#----- Walk every result page and aggregate the file buttons
+async def _collect_pages(userbot, chat_id: int, message: Message, *,
+                         max_pages: int = 5, deadline: float) -> List[Candidate]:
+    collected: List[Candidate] = []
+    seen: set[tuple] = set()
+    seen_next: set[str] = set()
+
+    def add_from(msg: Message) -> None:
+        for candidate in candidates_from_message(msg):
+            key = (candidate.label, candidate.size, candidate.quality,
+                   candidate.callback_data or candidate.message_id)
+            if key not in seen:
+                seen.add(key)
+                collected.append(candidate)
+
+    add_from(message)
+    for _ in range(max(0, max_pages - 1)):
+        if time.monotonic() >= deadline:
+            break
+
+        button = _next_button(message)
+        if not button:
+            break
+        col, row = button
+        markup = getattr(message, "reply_markup", None)
+        rows = getattr(markup, "inline_keyboard", None) or []
+        try:
+            callback = str(rows[row][col].callback_data)
+        except (IndexError, AttributeError):
+            callback = ""
+        if callback and callback in seen_next:
+            break
+        if callback:
+            seen_next.add(callback)
+
+        old_text = (getattr(message, "text", "") or "")[:200]
+        try:
+            await message.click(col, row)
+        except FloodWait as exc:
+            raise ExternalSearchBusy(exc.value) from exc
+        except Exception as exc:
+            _warn_once("pagination", f"Could not page M Searcher results: {exc}")
+            break
+
+        fresh = None
+        edit_deadline = min(deadline, time.monotonic() + 4)
+        while time.monotonic() < edit_deadline:
+            await asyncio.sleep(0.5)
+            try:
+                fresh = await userbot.get_messages(chat_id, message_ids=message.id)
+            except FloodWait as exc:
+                raise ExternalSearchBusy(exc.value) from exc
+            except Exception:
+                fresh = None
+            if fresh and (getattr(fresh, "text", "") or "")[:200] != old_text:
+                break
+        if not fresh:
+            break
+        message = fresh
+        add_from(message)
+
+    return collected
+
+
+async def search_all(title: str, year: Optional[int] = None, *,
+                     timeout: Optional[int] = None,
+                     max_pages: int = 5) -> List[Candidate]:
+    """Movie-style search: collect every file across the bot's result pages."""
+    settings = _config()
+    key = f"all:{_cache_key(title)}:{year}"
+    cached = _SEARCH_CACHE.get(key)
+    if cached and time.time() - cached[0] < _SEARCH_CACHE_TTL:
+        return list(cached[1])
+
+    timeout = max(8, min(60, int(timeout or settings.external_timeout + 10)))
+    try:
+        await asyncio.wait_for(_SEARCH_LOCK.acquire(), timeout=timeout)
+    except asyncio.TimeoutError as exc:
+        raise ExternalSearchBusy(3, "Another M Searcher request is running") from exc
+
+    try:
+        cached = _SEARCH_CACHE.get(key)
+        if cached and time.time() - cached[0] < _SEARCH_CACHE_TTL:
+            return list(cached[1])
+
+        userbot = botmod.Userbot
+        deadline = time.monotonic() + timeout
+        for query in build_query_variants(title, year):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                message, candidates = await _search_message(
+                    query, max(1, min(int(remaining), settings.external_timeout))
+                )
+            except ExternalSearchEmpty as exc:
+                LOGGER.info(f"[MSEARCH] '{query}' -> {exc}")
+                continue
+
+            if not candidates:
+                continue
+            collected = await _collect_pages(
+                userbot, message.chat.id, message,
+                max_pages=max_pages, deadline=deadline,
+            )
+            if collected:
+                _SEARCH_CACHE[key] = (time.time(), collected)
+                LOGGER.info(f"[MSEARCH] '{query}' -> {len(collected)} option(s) across pages")
+                return collected
+        return []
+    finally:
+        _SEARCH_LOCK.release()
+
+
 #----- Find one episode, paging through season-wide results when needed
 async def search_episode(title: str, season: int, episode: int, *,
                          timeout: Optional[int] = None) -> List[Candidate]:

@@ -1842,9 +1842,9 @@ async def update_settings_api(payload: dict) -> dict:
             payload["external_timeout"] = 8
     if "external_max_results" in payload:
         try:
-            payload["external_max_results"] = max(1, min(20, int(payload["external_max_results"])))
+            payload["external_max_results"] = max(1, min(100, int(payload["external_max_results"])))
         except (ValueError, TypeError):
-            payload["external_max_results"] = 20
+            payload["external_max_results"] = 50
     if "external_variants" in payload:
         try:
             # 0 = show every available source, not just one per quality

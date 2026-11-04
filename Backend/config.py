@@ -51,7 +51,7 @@ class Telegram:
     EXTERNAL_PREFETCH             = getenv("EXTERNAL_PREFETCH", "false").lower() == "true"
     EXTERNAL_ALWAYS               = getenv("EXTERNAL_ALWAYS", "false").lower() == "true"
     EXTERNAL_TIMEOUT              = _int_env("EXTERNAL_TIMEOUT", 8)
-    EXTERNAL_MAX_RESULTS          = _int_env("EXTERNAL_MAX_RESULTS", 20)
+    EXTERNAL_MAX_RESULTS          = _int_env("EXTERNAL_MAX_RESULTS", 50)
     EXTERNAL_VARIANTS             = _int_env("EXTERNAL_VARIANTS", 0)
 
     #----- WebDAV (optional env fallback; prefer Settings page)
