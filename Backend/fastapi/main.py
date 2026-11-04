@@ -868,7 +868,7 @@ async def tools_duplicates_purge(payload: dict | None = None, _: bool = Depends(
 async def auth_exception_handler(request: Request, exc):
     # API / stream / WebDAV clients must receive a real 401, not an HTML login redirect.
     path = request.url.path or ""
-    if path.startswith(("/webdav", "/dl/", "/sub/", "/stremio/", "/api/", "/thumb/")):
+    if path.startswith(("/webdav", "/dl/", "/sub/", "/stremio/", "/ms/", "/api/", "/thumb/")):
         from fastapi.responses import JSONResponse
         detail = getattr(exc, "detail", "Unauthorized")
         headers = {}

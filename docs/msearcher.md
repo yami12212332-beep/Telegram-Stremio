@@ -36,7 +36,7 @@ Add to `config.env` and restart:
 
 ```env
 EXTERNAL_SEARCH="true"
-EXTERNAL_BOT="YourSourceBot"
+EXTERNAL_BOT="M1searcherbot"
 STAGING_CHANNEL="-1001234567890"
 
 # Prefer Tamil-labelled results (does not hide other languages).
@@ -60,6 +60,12 @@ EXTERNAL_VARIANTS="1"
 
 Existing databases pick these values up as defaults; saving the Settings page also
 persists them. There is no dedicated web form yet — use `config.env`.
+
+The bridge searches episodes as `title S03 EP02` and deliberately omits the year:
+the source index may label the same show with a different year, and including it
+makes the bot return nothing. If the specific query has no hits it retries
+`title S03`, then `title`. A bot that answers a single match by sending the file
+directly (instead of a button list) is handled as one stream option.
 
 ## First test
 

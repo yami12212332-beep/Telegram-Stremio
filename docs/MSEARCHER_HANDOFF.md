@@ -64,7 +64,7 @@ Add to `config.env`:
 
 ```env
 EXTERNAL_SEARCH="true"
-EXTERNAL_BOT="MSearcherBot"          # username, no @
+EXTERNAL_BOT="M1searcherbot"          # username of the source bot, no @
 STAGING_CHANNEL="-1001234567890"     # private channel
 
 EXTERNAL_TAMIL_FIRST="true"          # prefer Tamil labels
@@ -111,6 +111,44 @@ addon still returns local streams/donation instead of breaking `/stream`.
 ---
 
 ## 5. Test plan (next)
+
+### P0 run 1 — live bot, 2026-11-04
+
+Session: `@me_h_i` (Telethon session from the local `TelegramSteamBot` checkout).
+The addon itself was not started; this validated the bot side only.
+
+| Step | Result |
+|---|---|
+| Resolve configured bot | ❌ `MSearcherBot` does not exist; real username is **`@M1searcherbot`** ("M Searcher bot") |
+| Query format | ❌ `House of the Dragon 2026 S03E02` → "No results"; ✅ `House of the Dragon 2026 S03 EP02` → 4 buttons |
+| Reply shape | ✅ multi-result queries return one message with inline callback buttons |
+| Single-result queries | ⚠️ the bot sometimes sends the **file directly, with no buttons** (observed for `Dragon`, `Thevar magan`) |
+| Button labels | ✅ `《1.67 GB》… 1080p S03EP02`; ⚠️ other results use `[3.52 GB] …` and `1080` without `p` |
+| Ignored buttons | ✅ ad button `😍 New Dating BoT 😘`, `📚 Page 1/3`, `Next ⏩` are dropped by the parser |
+| Click → file | ✅ clicked `《1.87 GB》… 1080p S03EP08`; document arrived in **1.4s**, 2,008,525,192 bytes, `noforwards=False` |
+| Pagination | ⚠️ `House of the Dragon S03` returned 26 results across 3 pages; only page 1 is parsed |
+| Staging copy | ✅ created private `Telegram-Stremio Staging` (`-1003752379719`); 1.87 GiB copied in **0.1s** with no forward header |
+| `/ms/resolve` → `/dl` | ✅ 307 in ~3s; `/dl` returned 200 (HEAD), 206 range, correct `content-length`/`content-type` |
+| Receiver indexing | ✅ staged copies indexed into `tv` (`S03E02`: 1080p, 720p, 480p); second `/stream` served local `/dl` streams |
+| Idempotent play | ✅ same `/ms/resolve` URL redirects again in 0.01s without a second copy |
+| Restart | ✅ pending request IDs become 404 (expected, in-memory registry) |
+| Restricted content (>2 GB) | ❌ not tested |
+
+Fixes applied from this run:
+
+- `build_query` emits `S03 EP02` (the bot token-matches; `S03E02` finds nothing) and
+  omits the year for episodes (the source index year can differ).
+- `search_best` tries `title S03 EP02` → `title S03` → `title`, and stops early
+  when the bot answers "No results" instead of waiting for the full timeout.
+- `_SIZE_RE` accepts `[...]` / `【...】` as well as `《...》` / `<...>`.
+- `_QUALITY_RE` accepts `1080` as well as `1080p`, normalized to `1080p`.
+- A direct file reply (single match) becomes a synthetic candidate with no
+  callback data; `prepare_request` copies that message without clicking.
+- **`message.click` axis bug**: Pyrogram takes `(x, y)` = `(column, row)`; the
+  bridge passed `(row, col)`, so every non-zero row failed with
+  "The button at position ... doesn't exist".
+- The 401 handler now treats `/ms/` as an API path (JSON 401) instead of
+  redirecting to `/login`, matching `/dl/` and `/stremio/`.
 
 ### P0 — validate the source bot (do this first)
 

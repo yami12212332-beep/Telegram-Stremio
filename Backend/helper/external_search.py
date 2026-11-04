@@ -35,9 +35,13 @@ _REQUEST_MAX = 2000
 _POLL_INTERVAL = 1.0
 _SEARCH_LOCK = asyncio.Lock()
 
-_SIZE_RE = re.compile(r"[《<]\s*([\d.]+\s*(?:GB|MB))\s*[》>]", re.IGNORECASE)
-_QUALITY_RE = re.compile(r"\b(2160p|1440p|1080p|720p|480p|360p)\b", re.IGNORECASE)
+_SIZE_RE = re.compile(r"[\[《<【]\s*([\d.]+\s*(?:GB|MB))\s*[\]》>】]", re.IGNORECASE)
+_QUALITY_RE = re.compile(r"\b(2160p?|1440p?|1080p?|720p?|480p?|360p?)\b", re.IGNORECASE)
 _TAMIL_RE = re.compile(r"\b(tamil|tam)\b", re.IGNORECASE)
+_NO_RESULTS_RE = re.compile(
+    r"no results|not found|couldn'?t find|no matches|retry with the correct spelling",
+    re.IGNORECASE,
+)
 _AUDIO_RE = re.compile(
     r"\b(tamil|telugu|hindi|malayalam|kannada|english|multi(?:\s*audio)?)\b",
     re.IGNORECASE,
@@ -55,6 +59,10 @@ class ExternalSearchBusy(ExternalSearchError):
     def __init__(self, wait_seconds: int = 5, message: str = "M Searcher is busy"):
         super().__init__(message)
         self.wait = max(1, int(wait_seconds))
+
+
+class ExternalSearchEmpty(ExternalSearchError):
+    """The source bot explicitly reported that it has no results."""
 
 
 @dataclass
@@ -132,18 +140,32 @@ def _cache_key(query: str) -> str:
 #----- Build a title/year/SxxExx query for the source bot
 def build_query(title: str, year: Optional[int] = None,
                 season: Optional[int] = None, episode: Optional[int] = None) -> str:
+    variants = build_query_variants(title, year, season, episode)
+    return variants[0] if variants else ""
+
+
+#----- Ordered query variants, most specific first
+def build_query_variants(title: str, year: Optional[int] = None,
+                         season: Optional[int] = None,
+                         episode: Optional[int] = None) -> List[str]:
     title = re.sub(r"\s+", " ", str(title or "")).strip()
     if not title:
-        return ""
-    parts = [title[:140]]
-    if year:
-        parts.append(str(year))
+        return []
+    title = title[:140]
+
     if season is not None and episode is not None:
         try:
-            parts.append(f"S{int(season):02d}E{int(episode):02d}")
+            # M Searcher matches tokens: "S03 EP02" works, "S03E02" does not.
+            # The year is deliberately omitted: the source index often labels a
+            # title with a different year, which makes the query match nothing.
+            s = f"S{int(season):02d} EP{int(episode):02d}"
+            return [f"{title} {s}", f"{title} S{int(season):02d}", title]
         except (TypeError, ValueError):
-            pass
-    return " ".join(parts)
+            return [title]
+
+    if year:
+        return [f"{title} {year}", title]
+    return [title]
 
 
 #----- Parse one button label like "《1.67 GB》 House ... 1080p S03E02"
@@ -159,6 +181,8 @@ def parse_candidate(text: str, row: int, col: int) -> Optional[Candidate]:
 
     size = re.sub(r"\s+", "", size_match.group(1)) if size_match else ""
     quality = quality_match.group(1).lower() if quality_match else ""
+    if quality and not quality.endswith("p"):
+        quality += "p"
     label = _SIZE_RE.sub("", raw).strip(" -–—|·")
     audio_match = _AUDIO_RE.search(label)
     audio = audio_match.group(1).lower() if audio_match else ""
@@ -297,6 +321,16 @@ async def _wait_for_results(userbot, chat_id: int, bot_id: int, sent: Message,
             found = candidates_from_message(message)
             if found:
                 return message, found
+            # Single match: the bot sends the file directly instead of a list.
+            if message.id > sent.id:
+                direct = candidate_from_file(message)
+                if direct:
+                    return message, [direct]
+                text = getattr(message, "text", "") or ""
+                if _NO_RESULTS_RE.search(text):
+                    raise ExternalSearchEmpty(
+                        re.sub(r"\s+", " ", text).strip()[:160] or "M Searcher found no results"
+                    )
     raise ExternalSearchError("M Searcher did not return file options in time")
 
 
@@ -311,7 +345,7 @@ async def search_candidates(query: str, *, timeout: Optional[int] = None) -> Lis
     if cached and time.time() - cached[0] < _SEARCH_CACHE_TTL:
         return list(cached[1])
 
-    timeout = max(3, min(30, int(timeout or settings.external_timeout)))
+    timeout = max(1, min(30, int(timeout or settings.external_timeout)))
     try:
         await asyncio.wait_for(_SEARCH_LOCK.acquire(), timeout=timeout)
     except asyncio.TimeoutError as exc:
@@ -340,6 +374,28 @@ async def search_candidates(query: str, *, timeout: Optional[int] = None) -> Lis
         _SEARCH_LOCK.release()
 
 
+#----- Try the specific query first, then progressively broader ones
+async def search_best(title: str, year: Optional[int] = None,
+                      season: Optional[int] = None, episode: Optional[int] = None,
+                      *, timeout: Optional[int] = None) -> List[Candidate]:
+    settings = _config()
+    timeout = max(3, min(30, int(timeout or settings.external_timeout)))
+    deadline = time.monotonic() + timeout
+
+    for query in build_query_variants(title, year, season, episode):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            candidates = await search_candidates(query, timeout=max(1, int(remaining)))
+        except ExternalSearchEmpty as exc:
+            LOGGER.info(f"[MSEARCH] '{query}' -> {exc}")
+            continue
+        if candidates:
+            return candidates
+    return []
+
+
 #----- Click one result and wait for the bot to send the actual file
 async def _click_and_wait(request: ExternalRequest, *, timeout: int) -> Message:
     userbot = botmod.Userbot
@@ -358,7 +414,8 @@ async def _click_and_wait(request: ExternalRequest, *, timeout: int) -> Message:
 
     row, col = find_button(message, request.callback_data, (request.row, request.col))
     try:
-        await message.click(row, col)
+        # Pyrogram's click(x, y) takes (column, row), unlike our (row, col) naming.
+        await message.click(col, row)
     except FloodWait as exc:
         raise ExternalSearchBusy(exc.value) from exc
     except Exception as exc:
@@ -438,6 +495,60 @@ def _filename(message: Message) -> str:
     return "video.mkv"
 
 
+#----- Human-readable size for a file message
+def _human_size(num) -> str:
+    try:
+        num = int(num or 0)
+    except (TypeError, ValueError):
+        return ""
+    if num <= 0:
+        return ""
+    if num >= 1024 ** 3:
+        return f"{num / (1024 ** 3):.2f}GB"
+    return f"{num / (1024 ** 2):.2f}MB"
+
+
+#----- Treat a file the bot sent directly (single match) as one candidate
+def candidate_from_file(message: Message) -> Optional[Candidate]:
+    if not (getattr(message, "document", None) or getattr(message, "video", None)):
+        return None
+    name = _filename(message)
+    size_bytes = (
+        getattr(getattr(message, "document", None), "file_size", 0)
+        or getattr(getattr(message, "video", None), "file_size", 0)
+        or 0
+    )
+    candidate = parse_candidate(name, 0, 0) or Candidate(
+        label=name, size="", quality="", audio="", tamil=False, row=0, col=0
+    )
+    candidate.label = name or candidate.label
+    candidate.size = _human_size(size_bytes) or candidate.size
+    candidate.callback_data = ""  # no button: copy this message directly
+    candidate.chat_id = int(message.chat.id)
+    candidate.message_id = int(message.id)
+    return candidate
+
+
+#----- Load a file that arrived without a button click
+async def _load_direct_file(request: ExternalRequest) -> Message:
+    userbot = botmod.Userbot
+    if userbot is None:
+        raise ExternalSearchError("No Telegram user session is connected")
+
+    try:
+        message = await userbot.get_messages(request.chat_id, message_ids=request.message_id)
+    except FloodWait as exc:
+        raise ExternalSearchBusy(exc.value) from exc
+    except Exception as exc:
+        raise ExternalSearchError(f"Could not load the M Searcher file message: {exc}") from exc
+
+    if message is None:
+        raise ExternalSearchError("The M Searcher file message no longer exists")
+    if not (getattr(message, "document", None) or getattr(message, "video", None)):
+        raise ExternalSearchError("The M Searcher message is not a file")
+    return message
+
+
 #----- Resolve one registered candidate exactly once (safe to call repeatedly)
 async def prepare_request(request: ExternalRequest) -> ExternalRequest:
     async with request.lock:
@@ -447,7 +558,11 @@ async def prepare_request(request: ExternalRequest) -> ExternalRequest:
         settings = SettingsManager.current()
         timeout = max(10, min(60, settings.external_timeout + 10))
 
-        file_message = await _click_and_wait(request, timeout=timeout)
+        if request.callback_data:
+            file_message = await _click_and_wait(request, timeout=timeout)
+        else:
+            # The bot answered the search with the file itself (single match).
+            file_message = await _load_direct_file(request)
         caption = request.label[:1000]
         if request.size and request.size.lower() not in caption.lower():
             caption = f"{caption} {request.size}"[:1000]

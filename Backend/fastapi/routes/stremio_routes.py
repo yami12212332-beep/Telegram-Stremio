@@ -1815,11 +1815,14 @@ async def _external_streams_for(token: str, request: Request, *, imdb_id: str,
 
     try:
         candidates = await asyncio.wait_for(
-            external_bot.search_candidates(query, timeout=settings.external_timeout),
-            timeout=settings.external_timeout + 1,
+            external_bot.search_best(
+                title, year, season_num, episode_num,
+                timeout=settings.external_timeout,
+            ),
+            timeout=settings.external_timeout + 8,
         )
     except (asyncio.TimeoutError, external_bot.ExternalSearchBusy) as exc:
-        LOGGER.warning(f"[MSEARCH] '{query}' unavailable: {exc}")
+        LOGGER.warning(f"[MSEARCH] '{query}' unavailable: {str(exc) or type(exc).__name__}")
         return []
     except external_bot.ExternalSearchError as exc:
         LOGGER.warning(f"[MSEARCH] '{query}' failed: {exc}")
