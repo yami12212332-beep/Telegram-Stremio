@@ -85,6 +85,7 @@ chaquopy {
             install("uvicorn==0.23.2")
             install("dnspython==2.6.1")
             install("pyrofork==2.3.61")
+            install("tgcrypto==1.2.5")
             install("wheels/pyaes-1.6.1-py3-none-any.whl")
             install("python-dotenv==1.0.1")
             install("aiofiles==23.2.1")
