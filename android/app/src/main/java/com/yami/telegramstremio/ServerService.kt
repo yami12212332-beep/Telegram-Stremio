@@ -98,7 +98,9 @@ class ServerService : Service() {
                 if (!Python.isStarted()) {
                     Python.start(AndroidPlatform(applicationContext))
                 }
-                notify("Server starting…")
+                notify("Starting Python…")
+                val port = ConfigStore(applicationContext).port
+                notify("Server running on port $port — open Admin")
                 Python.getInstance()
                     .getModule("bootstrap")
                     .callAttr("start", appDir.absolutePath)
