@@ -34,6 +34,7 @@ _REQUEST_TTL = 2 * 60 * 60
 _REQUEST_MAX = 2000
 _POLL_INTERVAL = 1.0
 _SEARCH_LOCK = asyncio.Lock()
+_PAGE_LOCK = asyncio.Lock()
 
 _SIZE_RE = re.compile(r"[\[《<【]\s*([\d.]+\s*(?:GB|MB))\s*[\]》>】]", re.IGNORECASE)
 _QUALITY_RE = re.compile(r"\b(2160p?|1440p?|1080p?|720p?|480p?|360p?)\b", re.IGNORECASE)
@@ -45,6 +46,7 @@ _NO_RESULTS_RE = re.compile(
     r"no results|not found|couldn'?t find|no matches|retry with the correct spelling",
     re.IGNORECASE,
 )
+_PAGE_RE = re.compile(r"(?:Total\s+)?Pages?\s*[:：]?\s*(\d+)\s*/\s*(\d+)", re.IGNORECASE)
 _AUDIO_RE = re.compile(
     r"\b(tamil|telugu|hindi|malayalam|kannada|english|multi(?:\s*audio)?)\b",
     re.IGNORECASE,
@@ -84,6 +86,7 @@ class Candidate:
     message_id: int = 0
     season: Optional[int] = None
     episode: Optional[int] = None
+    page: int = 1
 
 
 @dataclass
@@ -104,6 +107,7 @@ class ExternalRequest:
     callback_data: str
     title: str
     created_at: float
+    page: int = 1
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     resolved_chat_id: Optional[int] = None
     resolved_message_id: Optional[int] = None
@@ -242,7 +246,13 @@ def candidates_from_message(message: Message) -> List[Candidate]:
 
 
 #----- Find the exact button again, even if the bot edited/paginated the message
-def find_button(message: Message, callback_data: str, fallback: tuple[int, int]):
+def _normalize_label(text: str) -> str:
+    raw = re.sub(r"\s+", " ", str(text or "")).strip()
+    return _SIZE_RE.sub("", raw).strip(" -–—|·").lower()
+
+
+def find_button(message: Message, callback_data: str, fallback: tuple[int, int],
+                label: str = ""):
     markup = getattr(message, "reply_markup", None)
     rows = getattr(markup, "inline_keyboard", None) or []
     if callback_data:
@@ -250,6 +260,16 @@ def find_button(message: Message, callback_data: str, fallback: tuple[int, int])
             for col_idx, button in enumerate(row or []):
                 if str(getattr(button, "callback_data", "")) == callback_data:
                     return row_idx, col_idx
+
+    # The bot re-encrypts callback data when it re-renders a page; the label is stable.
+    target = _normalize_label(label)
+    if target:
+        for row_idx, row in enumerate(rows):
+            for col_idx, button in enumerate(row or []):
+                if _normalize_label(getattr(button, "text", "")) == target:
+                    return row_idx, col_idx
+
+    if callback_data or target:
         raise ExternalSearchError("The M Searcher result list changed; reopen the title")
     return fallback
 
@@ -415,6 +435,112 @@ def _next_button(message: Message):
     return None
 
 
+#----- Locate a "Previous" button and return Pyrogram's (column, row)
+def _prev_button(message: Message):
+    markup = getattr(message, "reply_markup", None)
+    rows = getattr(markup, "inline_keyboard", None) or []
+    for row_idx, row in enumerate(rows):
+        for col_idx, button in enumerate(row or []):
+            text = (getattr(button, "text", "") or "").lower()
+            if ("prev" in text or "back" in text) and getattr(button, "callback_data", None):
+                return col_idx, row_idx
+    return None
+
+
+#----- Read "Total Pages : 3/29" or "Page 3/29" from the result header
+def _current_page(message: Message) -> int:
+    text = getattr(message, "text", "") or ""
+    match = _PAGE_RE.search(text)
+    return int(match.group(1)) if match else 1
+
+
+#----- Wait for the bot to edit the result message after a page click
+async def _wait_for_edit(userbot, message: Message, old_text: str, deadline: float):
+    edit_deadline = min(deadline, time.monotonic() + 4)
+    fresh = None
+    while time.monotonic() < edit_deadline:
+        await asyncio.sleep(0.5)
+        try:
+            fresh = await userbot.get_messages(message.chat.id, message_ids=message.id)
+        except FloodWait as exc:
+            raise ExternalSearchBusy(exc.value) from exc
+        except Exception:
+            fresh = None
+        if fresh and (getattr(fresh, "text", "") or "")[:200] != old_text:
+            return fresh
+    return fresh
+
+
+#----- Navigate the shared result message to a specific page
+async def _goto_page(userbot, message: Message, target: int, *, deadline: float) -> Message:
+    target = max(1, int(target))
+    for _ in range(60):
+        current = _current_page(message)
+        if current == target:
+            return message
+
+        button = _next_button(message) if target > current else _prev_button(message)
+        if not button:
+            raise ExternalSearchError("Could not reach the requested result page")
+        col, row = button
+        old_text = (getattr(message, "text", "") or "")[:200]
+        try:
+            await message.click(col, row)
+        except FloodWait as exc:
+            raise ExternalSearchBusy(exc.value) from exc
+        except Exception as exc:
+            raise ExternalSearchError(f"Could not change the result page: {exc}") from exc
+
+        fresh = await _wait_for_edit(userbot, message, old_text, deadline)
+        if not fresh:
+            raise ExternalSearchError("The result page did not change in time")
+        message = fresh
+
+    raise ExternalSearchError("Could not reach the requested result page")
+
+
+#----- Total number of result pages from "Total Pages : 3/29"
+def _total_pages(message: Message) -> int:
+    text = getattr(message, "text", "") or ""
+    match = _PAGE_RE.search(text)
+    return int(match.group(2)) if match else 1
+
+
+#----- Last-resort lookup: walk every page for the stored label/callback
+async def _find_button_across_pages(userbot, message: Message,
+                                    request: ExternalRequest, *, deadline: float):
+    total = min(_total_pages(message), 20)
+    if _current_page(message) != 1:
+        message = await _goto_page(userbot, message, 1, deadline=deadline)
+
+    for _ in range(total):
+        try:
+            row, col = find_button(
+                message, request.callback_data, (request.row, request.col), request.label
+            )
+            return message, row, col
+        except ExternalSearchError:
+            pass
+
+        if _current_page(message) >= total:
+            break
+        button = _next_button(message)
+        if not button:
+            break
+        col, row = button
+        old_text = (getattr(message, "text", "") or "")[:200]
+        try:
+            await message.click(col, row)
+        except Exception as exc:
+            raise ExternalSearchError(f"Could not scan the result pages: {exc}") from exc
+        fresh = await _wait_for_edit(userbot, message, old_text, deadline)
+        if not fresh:
+            break
+        message = fresh
+
+    raise ExternalSearchError("The M Searcher result list changed; reopen the title")
+
+
 #----- Episode query forms; source bots index either S01E01 or S01 EP01
 def build_episode_queries(title: str, season: int, episode: int) -> List[str]:
     title = re.sub(r"\s+", " ", str(title or "")).strip()[:140]
@@ -443,11 +569,14 @@ async def _paginate_for_episode(userbot, chat_id: int, message: Message,
                                 season: Optional[int], episode: int, *,
                                 max_pages: int = 5, deadline: float) -> List[Candidate]:
     seen: set[str] = set()
+    page_no = _current_page(message)
     for _ in range(max_pages):
         matches = [
             candidate for candidate in candidates_from_message(message)
             if _episode_match(candidate, season, episode)
         ]
+        for candidate in matches:
+            candidate.page = page_no
         if matches:
             return matches
         if time.monotonic() >= deadline:
@@ -478,26 +607,19 @@ async def _paginate_for_episode(userbot, chat_id: int, message: Message,
             _warn_once("pagination", f"Could not page M Searcher results: {exc}")
             break
 
-        fresh = None
-        edit_deadline = min(deadline, time.monotonic() + 4)
-        while time.monotonic() < edit_deadline:
-            await asyncio.sleep(0.5)
-            try:
-                fresh = await userbot.get_messages(chat_id, message_ids=message.id)
-            except FloodWait as exc:
-                raise ExternalSearchBusy(exc.value) from exc
-            except Exception:
-                fresh = None
-            if fresh and (getattr(fresh, "text", "") or "")[:200] != old_text:
-                break
+        fresh = await _wait_for_edit(userbot, message, old_text, deadline)
         if not fresh:
             break
         message = fresh
+        page_no = _current_page(message)
 
-    return [
+    matches = [
         candidate for candidate in candidates_from_message(message)
         if _episode_match(candidate, season, episode)
     ]
+    for candidate in matches:
+        candidate.page = page_no
+    return matches
 
 
 async def search_candidates(query: str, *, timeout: Optional[int] = None) -> List[Candidate]:
@@ -537,16 +659,18 @@ async def _collect_pages(userbot, chat_id: int, message: Message, *,
     collected: List[Candidate] = []
     seen: set[tuple] = set()
     seen_next: set[str] = set()
+    page_no = _current_page(message)
 
-    def add_from(msg: Message) -> None:
+    def add_from(msg: Message, page: int) -> None:
         for candidate in candidates_from_message(msg):
             key = (candidate.label, candidate.size, candidate.quality,
                    candidate.callback_data or candidate.message_id)
             if key not in seen:
                 seen.add(key)
+                candidate.page = page
                 collected.append(candidate)
 
-    add_from(message)
+    add_from(message, page_no)
     for _ in range(max(0, max_pages - 1)):
         if time.monotonic() >= deadline:
             break
@@ -575,22 +699,20 @@ async def _collect_pages(userbot, chat_id: int, message: Message, *,
             _warn_once("pagination", f"Could not page M Searcher results: {exc}")
             break
 
-        fresh = None
-        edit_deadline = min(deadline, time.monotonic() + 4)
-        while time.monotonic() < edit_deadline:
-            await asyncio.sleep(0.5)
-            try:
-                fresh = await userbot.get_messages(chat_id, message_ids=message.id)
-            except FloodWait as exc:
-                raise ExternalSearchBusy(exc.value) from exc
-            except Exception:
-                fresh = None
-            if fresh and (getattr(fresh, "text", "") or "")[:200] != old_text:
-                break
+        fresh = await _wait_for_edit(userbot, message, old_text, deadline)
         if not fresh:
             break
         message = fresh
-        add_from(message)
+        page_no = _current_page(message)
+        add_from(message, page_no)
+
+    # Leave the message on page 1 so the top-ranked (usually page 1) picks
+    # resolve without navigating again. Deeper picks navigate forward on play.
+    if page_no > 1:
+        try:
+            await _goto_page(userbot, message, 1, deadline=deadline)
+        except Exception as exc:
+            _warn_once("reset_page", f"Could not return to page 1: {exc}")
 
     return collected
 
@@ -725,47 +847,70 @@ async def _click_and_wait(request: ExternalRequest, *, timeout: int) -> Message:
     if userbot is None:
         raise ExternalSearchError("No Telegram user session is connected")
 
-    try:
-        message = await userbot.get_messages(request.chat_id, message_ids=request.message_id)
-    except FloodWait as exc:
-        raise ExternalSearchBusy(exc.value) from exc
-    except Exception as exc:
-        raise ExternalSearchError(f"Could not load the M Searcher result message: {exc}") from exc
-
-    if message is None:
-        raise ExternalSearchError("The M Searcher result message no longer exists")
-
-    row, col = find_button(message, request.callback_data, (request.row, request.col))
-    try:
-        # Pyrogram's click(x, y) takes (column, row), unlike our (row, col) naming.
-        await message.click(col, row)
-    except FloodWait as exc:
-        raise ExternalSearchBusy(exc.value) from exc
-    except Exception as exc:
-        raise ExternalSearchError(f"Could not select the result: {exc}") from exc
-
-    deadline = time.monotonic() + timeout
-    baseline = max(message.id, request.message_id)
-    last_text = ""
-    while time.monotonic() < deadline:
-        await asyncio.sleep(_POLL_INTERVAL)
-
-        for item in await _history(userbot, request.chat_id):
-            if item.id > baseline and (item.document or item.video):
-                return item
-
-        # Some bots edit the result message into the file instead of sending a new one.
+    # The result message is shared; serialize page changes and clicks.
+    async with _PAGE_LOCK:
         try:
-            fresh = await userbot.get_messages(request.chat_id, message_ids=request.message_id)
-        except Exception:
-            fresh = None
-        if fresh and (fresh.document or fresh.video):
-            return fresh
-        if fresh and fresh.text:
-            last_text = re.sub(r"\s+", " ", fresh.text)[:160]
+            message = await userbot.get_messages(request.chat_id, message_ids=request.message_id)
+        except FloodWait as exc:
+            raise ExternalSearchBusy(exc.value) from exc
+        except Exception as exc:
+            raise ExternalSearchError(f"Could not load the M Searcher result message: {exc}") from exc
 
-    detail = f": {last_text}" if last_text else ""
-    raise ExternalSearchError(f"M Searcher did not send the file in time{detail}")
+        if message is None:
+            raise ExternalSearchError("The M Searcher result message no longer exists")
+
+        LOGGER.info(
+            f"[MSEARCH] resolve page={request.page} current={_current_page(message)} "
+            f"label={request.label[:70]!r}"
+        )
+
+        # The candidate remembers which page its button lived on.
+        if request.callback_data and request.page:
+            current = _current_page(message)
+            if current != request.page:
+                message = await _goto_page(
+                    userbot, message, request.page,
+                    deadline=time.monotonic() + timeout,
+                )
+
+        try:
+            row, col = find_button(
+                message, request.callback_data, (request.row, request.col), request.label
+            )
+        except ExternalSearchError:
+            message, row, col = await _find_button_across_pages(
+                userbot, message, request, deadline=time.monotonic() + timeout,
+            )
+        try:
+            # Pyrogram's click(x, y) takes (column, row), unlike our (row, col) naming.
+            await message.click(col, row)
+        except FloodWait as exc:
+            raise ExternalSearchBusy(exc.value) from exc
+        except Exception as exc:
+            raise ExternalSearchError(f"Could not select the result: {exc}") from exc
+
+        deadline = time.monotonic() + timeout
+        baseline = max(message.id, request.message_id)
+        last_text = ""
+        while time.monotonic() < deadline:
+            await asyncio.sleep(_POLL_INTERVAL)
+
+            for item in await _history(userbot, request.chat_id):
+                if item.id > baseline and (item.document or item.video):
+                    return item
+
+            # Some bots edit the result message into the file instead of sending a new one.
+            try:
+                fresh = await userbot.get_messages(request.chat_id, message_ids=request.message_id)
+            except Exception:
+                fresh = None
+            if fresh and (fresh.document or fresh.video):
+                return fresh
+            if fresh and fresh.text:
+                last_text = re.sub(r"\s+", " ", fresh.text)[:160]
+
+        detail = f": {last_text}" if last_text else ""
+        raise ExternalSearchError(f"M Searcher did not send the file in time{detail}")
 
 
 #----- Copy the file into our own staging channel (server-side on Telegram)
@@ -879,7 +1024,7 @@ async def prepare_request(request: ExternalRequest) -> ExternalRequest:
             return request
 
         settings = SettingsManager.current()
-        timeout = max(10, min(60, settings.external_timeout + 10))
+        timeout = max(20, min(90, settings.external_timeout + 30))
 
         if request.callback_data:
             file_message = await _click_and_wait(request, timeout=timeout)
@@ -943,6 +1088,7 @@ def register(token: str, candidate: Candidate, title: str) -> tuple[str, Externa
         callback_data=candidate.callback_data,
         title=title,
         created_at=time.time(),
+        page=candidate.page,
     )
     _REQUESTS[request_id] = request
     return request_id, request

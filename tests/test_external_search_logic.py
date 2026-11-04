@@ -100,6 +100,18 @@ def test_episode_queries():
     ]
 
 
+def test_page_parsing():
+    header = types.SimpleNamespace(
+        text="🍂 Movie Name : X\n🗳️ Total Results : 39\n📚 Total Pages : 3/11"
+    )
+    assert es._current_page(header) == 3
+    assert es._total_pages(header) == 11
+
+    button_form = types.SimpleNamespace(text="📚 Page 1/4")
+    assert es._current_page(button_form) == 1
+    assert es._total_pages(button_form) == 4
+
+
 def test_label_parsing():
     cases = {
         "《827.11 MB》House of the Dragon 2026 720p S03EP08": ("827.11MB", "720p", 3, 8),
@@ -185,6 +197,7 @@ def test_request_registry():
 if __name__ == "__main__":
     test_query_variants()
     test_episode_queries()
+    test_page_parsing()
     test_label_parsing()
     test_episode_filtering()
     test_all_sources_per_quality()

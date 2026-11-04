@@ -184,6 +184,29 @@ Fixes applied from this run:
 - `EXTERNAL_VARIANTS=0` means every available source; `EXTERNAL_MAX_RESULTS` default 50.
 - Stream names fall back to the file size when the label has no quality token.
 
+### P0 run 4 — page-aware playback, 2026-11-04
+
+| Check | Result |
+|---|---|
+| Symptom | `/ms/resolve` returned 502 `The M Searcher result list changed` for every multi-page movie |
+| Cause 1 | the result header says `Total Pages : 3/11`, but the parser only matched `Page 3/11`, so every candidate was tagged **page 1** |
+| Cause 2 | callback data is page-state-bound; clicking a page-1 button while the message sat on page 5 fails with `DATA_INVALID` |
+| Page parsing | ✅ `_PAGE_RE` accepts `Total Pages : x/y` and `Page x/y` |
+| Page tracking | ✅ each candidate stores the page it was parsed from |
+| Resolve | ✅ navigates to that page before clicking; falls back to a label match, then a full page scan |
+| The Dark Knight | ✅ 48 options; page-4 pick copied + returned 200 in 9.3s, page-2 pick in 4.4s |
+| Shared message | ✅ a page lock serializes navigation/clicks across concurrent resolves |
+| Timeouts | ✅ `/ms/resolve` allows 40-80s when navigation is required |
+
+Fixes applied from this run:
+
+- `Candidate.page` / `ExternalRequest.page`; `register` persists the page.
+- `_collect_pages` leaves the message on page 1 after collecting (best effort).
+- `_click_and_wait` navigates to the stored page, then matches by callback data
+  or normalized label before clicking.
+- `find_button`/`_find_button_across_pages` tolerate callback re-encryption and
+  page reordering.
+
 ### P0 — validate the source bot (do this first)
 
 1. From the userbot account, send `House of the Dragon 2026 S03E02`.

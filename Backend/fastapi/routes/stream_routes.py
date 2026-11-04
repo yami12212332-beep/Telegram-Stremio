@@ -293,7 +293,7 @@ async def resolve_external_stream(
     try:
         pending = await asyncio.wait_for(
             external_bot.prepare_request(pending),
-            timeout=max(20, SettingsManager.current().external_timeout + 20),
+            timeout=max(40, SettingsManager.current().external_timeout + 40),
         )
     except external_bot.ExternalSearchBusy as exc:
         raise HTTPException(
