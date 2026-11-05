@@ -31,9 +31,9 @@ async def staging_cleanup_loop():
     await asyncio.sleep(300)
     while True:
         settings = SettingsManager.current()
-        if settings.external_search and settings.staging_channel:
+        if settings.external_search and settings.staging_channel and botmod.Userbot is not None:
             try:
-                await cleanup_orphans(db, StreamBot, settings.staging_channel)
+                await cleanup_orphans(db, botmod.Userbot, settings.staging_channel)
             except Exception:
                 LOGGER.warning("[MSEARCH] staging cleanup loop error", exc_info=True)
         await asyncio.sleep(6 * 3600)
