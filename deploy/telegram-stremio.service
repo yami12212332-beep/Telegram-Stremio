@@ -1,0 +1,19 @@
+[Unit]
+Description=Telegram-Stremio addon server
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Documents/Telegram-Stremio
+ExecStart=%h/Documents/Telegram-Stremio/.venv/bin/python -m Backend
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
