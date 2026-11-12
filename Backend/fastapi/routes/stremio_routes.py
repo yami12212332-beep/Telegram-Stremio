@@ -1821,7 +1821,7 @@ async def _external_streams_for(token: str, request: Request, *, imdb_id: str,
         streams.append({
             "name": name,
             "title": f"{candidate.label}\n{size_part}M Searcher — tap to fetch & play",
-            "url": f"{base}/ms/resolve/{token}/{request_id}",
+            "url": f"{base}/ms/resolve/{token}/{request_id}/video.mkv",
             "size_bytes": parse_size_to_bytes(candidate.size),
             "sort_name": candidate.quality or "HD",
             "behaviorHints": {"bingeGroup": f"msearcher-{candidate.quality or 'hd'}-{request_id[:8]}"},

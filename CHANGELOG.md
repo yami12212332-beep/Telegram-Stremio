@@ -2,6 +2,16 @@
 
 All notable changes to the M Searcher bridge and the Android on-device server.
 
+## 2026-11-12
+
+- External stream URLs now end in `/video.mkv`, e.g.
+  `/ms/resolve/<token>/<id>/video.mkv`. Nuvio's mpv/ytdl_hook was seeing an
+  extensionless URL and trying to launch `youtube-dl`, producing
+  `[ytdl_hook] youtube-dl failed: not found or not enough permissions`.
+- The old `/ms/resolve/<token>/<id>` URL still works for existing clients.
+- Workaround for Nuvio's internal player: use VLC/external player if the
+  app's mpv still insists on yt-dlp.
+
 ## 2026-11-04
 
 ### Android on-device server — working

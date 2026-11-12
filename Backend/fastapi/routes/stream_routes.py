@@ -276,10 +276,12 @@ async def subtitle_handler(token: str, id: str, name: str, token_data: dict = De
 
 #----- Resolve an M Searcher result on first play, then redirect to the copied file
 @router.api_route("/ms/resolve/{token}/{request_id}", methods=["GET", "HEAD"])
+@router.api_route("/ms/resolve/{token}/{request_id}/{name}", methods=["GET", "HEAD"])
 async def resolve_external_stream(
     request: Request,
     token: str,
     request_id: str,
+    name: str = "",
     token_data: dict = Depends(verify_token),
 ):
     if token_data.get("subscription_expired"):
