@@ -85,7 +85,7 @@ class ConfigStore(context: Context) {
             appendLine("EXTERNAL_TAMIL_FIRST=\"true\"")
             appendLine("EXTERNAL_PREFETCH=\"false\"")
             appendLine("EXTERNAL_PREFETCH_LIMIT=\"1\"")
-            appendLine("EXTERNAL_ALWAYS=\"false\"")
+            appendLine("EXTERNAL_ALWAYS=\"true\"")
             appendLine("EXTERNAL_TIMEOUT=\"8\"")
             appendLine("EXTERNAL_MAX_RESULTS=\"50\"")
             appendLine("EXTERNAL_VARIANTS=\"0\"")

@@ -70,7 +70,7 @@ STAGING_CHANNEL="-1001234567890"     # private channel
 EXTERNAL_TAMIL_FIRST="true"          # prefer Tamil labels
 EXTERNAL_PREFETCH="false"            # copy offered files immediately
 EXTERNAL_PREFETCH_LIMIT="1"          # max candidates prefetch may copy, 0-5
-EXTERNAL_ALWAYS="false"              # also for titles already local
+EXTERNAL_ALWAYS="true"              # also for titles already local
 EXTERNAL_TIMEOUT="8"                 # seconds, 3-30
 EXTERNAL_MAX_RESULTS="50"            # options, 1-100
 EXTERNAL_VARIANTS="0"                # 0 = every source, or cap per quality
@@ -306,8 +306,8 @@ If step 2 or 3 fails, adjust `external_search.py` before spending time on Nuvio.
 
 ## 7. Known limitations
 
-- External options are a **fallback**; with `EXTERNAL_ALWAYS=false` a title with
-  any local stream will not show them.
+- External options are shown beside local streams by default; with
+  `EXTERNAL_ALWAYS=false` a title with any local stream hides them.
 - Tamil is detected from the **button label only**.
 - Only IMDb IDs; Kitsu/anime IDs are skipped.
 - Request state is persisted in Mongo for 2 hours; pending links survive restarts.

@@ -15,6 +15,10 @@ All notable changes to the M Searcher bridge and the Android on-device server.
   `/ms/resolve/<token>/<id>` URL still works.
 - Workaround if Nuvio's internal player still insists on yt-dlp: use VLC or
   another external player.
+- `EXTERNAL_ALWAYS` now defaults to **true**: bot results are shown beside the
+  local library instead of disappearing as soon as one local copy exists. Set it
+  to false in Admin → Settings → M Searcher Bridge if you want fallback-only
+  behavior.
 
 ## 2026-11-04
 

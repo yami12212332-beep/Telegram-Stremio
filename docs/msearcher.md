@@ -50,7 +50,7 @@ EXTERNAL_PREFETCH_LIMIT="1"
 
 # Show external options even when the title already has local streams.
 # Off by default to avoid duplicate copies.
-EXTERNAL_ALWAYS="false"
+EXTERNAL_ALWAYS="true"
 
 # Seconds to wait for the source bot (3-30).
 EXTERNAL_TIMEOUT="8"
@@ -100,8 +100,8 @@ If no options appear, check the log for `[MSEARCH]` warnings. Common causes:
 - Tamil is detected from the button label only. If the label has no language, the
   option is shown without a Tamil tag.
 - Per-file Telegram limits still apply: 2 GB for free accounts, 4 GB with Premium.
-- The bridge is a fallback by default. With `EXTERNAL_ALWAYS=false`, a title that
-  already has local streams will not show external options.
+- External options are shown **beside local streams by default**. Set
+  `EXTERNAL_ALWAYS=false` to use M Searcher only when a title has no local stream.
 - Only IMDb-based titles are supported (Kitsu/anime IDs are skipped).
 - Pending play links are stored in Mongo for 2 hours, so a restart between
   selecting a stream and playing it still works.
