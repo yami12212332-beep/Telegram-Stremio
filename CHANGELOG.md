@@ -8,9 +8,13 @@ All notable changes to the M Searcher bridge and the Android on-device server.
   `/ms/resolve/<token>/<id>/video.mkv`. Nuvio's mpv/ytdl_hook was seeing an
   extensionless URL and trying to launch `youtube-dl`, producing
   `[ytdl_hook] youtube-dl failed: not found or not enough permissions`.
-- The old `/ms/resolve/<token>/<id>` URL still works for existing clients.
-- Workaround for Nuvio's internal player: use VLC/external player if the
-  app's mpv still insists on yt-dlp.
+- `/ms/resolve` now **streams the file directly** (`200`/`206` with
+  `video/x-matroska`) instead of returning a `307` redirect to `/dl`.
+  Nuvio's internal mpv mishandles the redirect: the direct local `/dl` URL
+  played, but the external redirect triggered ytdl_hook. The old
+  `/ms/resolve/<token>/<id>` URL still works.
+- Workaround if Nuvio's internal player still insists on yt-dlp: use VLC or
+  another external player.
 
 ## 2026-11-04
 

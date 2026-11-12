@@ -8,7 +8,7 @@ from typing import Dict
 from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse
 from fastapi.responses import Response as PlainResponse
 from fastapi.responses import StreamingResponse
 
@@ -329,9 +329,12 @@ async def resolve_external_stream(
         "chat_id": int(channel),
         "msg_id": int(pending.resolved_message_id),
     })
-    base = (SettingsManager.current().base_url or str(request.base_url)).rstrip("/")
-    target = f"{base}/dl/{token}/{encoded}/{quote(pending.filename or 'video.mkv', safe='')}"
-    return RedirectResponse(target, status_code=307, headers={"Cache-Control": "no-store"})
+    # Stream directly instead of redirecting. Nuvio's mpv/ytdl_hook mishandles
+    # the 307 and tries to launch youtube-dl; a direct 200 video response plays.
+    request.path_params["name"] = pending.filename or "video.mkv"
+    return await stream_handler(
+        request, token, encoded, pending.filename or "video.mkv", token_data
+    )
 
 
 #----- Entry point: decode the id and dispatch to the matching streamer

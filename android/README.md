@@ -88,7 +88,8 @@ For Nuvio on another device, set Base URL to the phone's LAN IP before starting.
   service with a wake lock.
 - The APK is arm64 only.
 - Nuvio's internal mpv may show `[ytdl_hook] youtube-dl failed` on an
-  extensionless URL. External stream URLs now end in `/video.mkv`; if the app
-  still insists on yt-dlp, play the stream with VLC or another external player.
+  extensionless or redirected URL. External stream URLs now end in `/video.mkv`
+  and `/ms/resolve` streams the file directly instead of redirecting. If the app
+  still insists on yt-dlp, play with VLC or another external player.
 
 See `../PROJECT_STATE.md` for the full status and remaining work.
